@@ -15,6 +15,7 @@ import com.filevault.pro.MainActivity
 import com.filevault.pro.R
 import com.filevault.pro.data.preferences.AppPreferences
 import com.filevault.pro.domain.repository.FileRepository
+import com.filevault.pro.observer.MediaStoreObserver
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,6 +29,7 @@ class ScanForegroundService : Service() {
 
     @Inject lateinit var fileRepository: FileRepository
     @Inject lateinit var appPreferences: AppPreferences
+    @Inject lateinit var mediaStoreObserver: MediaStoreObserver
 
     private val job = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.IO + job)
@@ -38,10 +40,22 @@ class ScanForegroundService : Service() {
         const val NOTIFICATION_ID = 1001
         const val ACTION_START = "com.filevault.pro.action.START_SCAN"
         const val ACTION_STOP = "com.filevault.pro.action.STOP_SCAN"
+        const val ACTION_START_MONITORING = "com.filevault.pro.action.START_MONITORING"
 
         fun startScan(context: Context) {
             val intent = Intent(context, ScanForegroundService::class.java).apply {
                 action = ACTION_START
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        fun startMonitoring(context: Context) {
+            val intent = Intent(context, ScanForegroundService::class.java).apply {
+                action = ACTION_START_MONITORING
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -59,12 +73,19 @@ class ScanForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                mediaStoreObserver.unregister()
                 stopForeground(true)
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_START_MONITORING -> {
+                startForeground(NOTIFICATION_ID, buildNotification("Monitoring for file changes…"))
+                mediaStoreObserver.register()
+                Log.d(TAG, "Real-time monitoring started via ContentObserver + FileObserver")
+            }
             else -> {
                 startForeground(NOTIFICATION_ID, buildNotification("Scanning your files…"))
+                mediaStoreObserver.register()
                 performScan()
             }
         }
@@ -142,6 +163,7 @@ class ScanForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        mediaStoreObserver.unregister()
         scope.cancel()
     }
 }

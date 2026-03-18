@@ -25,7 +25,8 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     onNavigateToSyncProfiles: () -> Unit,
     onNavigateToDuplicates: () -> Unit,
-    onNavigateToFolders: () -> Unit
+    onNavigateToFolders: () -> Unit,
+    onNavigateToNotifications: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val themeMode by viewModel.themeMode.collectAsState()
@@ -86,6 +87,14 @@ fun SettingsScreen(
                 title = "Duplicate Finder",
                 subtitle = "Find and manage duplicate files",
                 onClick = onNavigateToDuplicates
+            )
+        }
+        item {
+            SettingsItem(
+                icon = Icons.Default.Notifications,
+                title = "Notification Center",
+                subtitle = "View scan and sync activity log",
+                onClick = onNavigateToNotifications
             )
         }
         item {

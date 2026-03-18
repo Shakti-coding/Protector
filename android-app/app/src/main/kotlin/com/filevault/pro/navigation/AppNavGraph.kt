@@ -31,6 +31,7 @@ import com.filevault.pro.presentation.screen.sync.SyncHistoryScreen
 import com.filevault.pro.presentation.screen.sync.SyncProfilesScreen
 import com.filevault.pro.presentation.screen.sync.AddSyncProfileScreen
 import com.filevault.pro.presentation.screen.videos.VideosScreen
+import com.filevault.pro.presentation.screen.notifications.NotificationCenterScreen
 import java.net.URLEncoder
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector? = null) {
@@ -53,6 +54,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object SyncHistory : Screen("sync_history/{profileId}", "Sync History") {
         fun createRoute(profileId: Long) = "sync_history/$profileId"
     }
+    object Notifications : Screen("notifications", "Notifications")
 }
 
 val bottomNavItems = listOf(Screen.Dashboard, Screen.Photos, Screen.Videos, Screen.Files, Screen.Settings)
@@ -154,7 +156,8 @@ fun AppNavGraph() {
                 SettingsScreen(
                     onNavigateToSyncProfiles = { navController.navigate(Screen.SyncProfiles.route) },
                     onNavigateToDuplicates = { navController.navigate(Screen.Duplicates.route) },
-                    onNavigateToFolders = { navController.navigate(Screen.Folders.route) }
+                    onNavigateToFolders = { navController.navigate(Screen.Folders.route) },
+                    onNavigateToNotifications = { navController.navigate(Screen.Notifications.route) }
                 )
             }
             composable(Screen.Folders.route) {
@@ -190,6 +193,9 @@ fun AppNavGraph() {
             ) { backStackEntry ->
                 val profileId = backStackEntry.arguments?.getLong("profileId") ?: 0L
                 SyncHistoryScreen(profileId = profileId, onBack = { navController.popBackStack() })
+            }
+            composable(Screen.Notifications.route) {
+                NotificationCenterScreen(onBack = { navController.popBackStack() })
             }
         }
     }

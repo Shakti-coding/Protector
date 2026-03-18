@@ -7,6 +7,9 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.filevault.pro.data.preferences.AppPreferences
 import com.filevault.pro.domain.repository.FileRepository
+import com.filevault.pro.presentation.screen.notifications.AppNotification
+import com.filevault.pro.presentation.screen.notifications.NotificationStore
+import com.filevault.pro.presentation.screen.notifications.NotificationType
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
@@ -46,6 +49,14 @@ class ScanWorker @AssistedInject constructor(
             }
 
             Log.d(TAG, "Scan complete. Total processed: $totalCount")
+
+            NotificationStore.add(
+                AppNotification(
+                    type = NotificationType.SCAN,
+                    title = "Scan Complete",
+                    message = "Cataloged $totalCount files from your device storage"
+                )
+            )
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Scan failed: ${e.message}", e)

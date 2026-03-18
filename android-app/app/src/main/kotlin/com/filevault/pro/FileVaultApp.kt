@@ -84,4 +84,17 @@ class FileVaultApp : Application(), Configuration.Provider {
             scanRequest
         )
     }
+
+    private fun startRealtimeMonitoring() {
+        try {
+            val intent = android.content.Intent(this, com.filevault.pro.service.ScanForegroundService::class.java).apply {
+                action = com.filevault.pro.service.ScanForegroundService.ACTION_START_MONITORING
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (_: Exception) {}
+    }
 }

@@ -120,6 +120,37 @@ fun FileDetailScreen(
                     Spacer(Modifier.height(20.dp))
                     SyncStatusCard(file = f, onToggleIgnore = { viewModel.toggleSyncIgnore(f.path, !f.isSyncIgnored) })
 
+                    if (f.isDeletedFromDevice) {
+                        Spacer(Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.errorContainer
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Warning, null, Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.error)
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("File Missing from Device",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onErrorContainer)
+                                    Text(
+                                        if (f.lastSyncedAt != null)
+                                            "This file has been deleted from your device. It may be available in your sync destination."
+                                        else
+                                            "This file has been deleted from your device and has not been synced.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(0.8f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.height(8.dp))
                     if (f.isHidden) {
                         Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {

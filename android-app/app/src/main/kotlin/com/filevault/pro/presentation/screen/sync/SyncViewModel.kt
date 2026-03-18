@@ -3,7 +3,11 @@ package com.filevault.pro.presentation.screen.sync
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.filevault.pro.domain.model.SyncHistory
@@ -17,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltViewModel
@@ -43,6 +48,10 @@ class SyncViewModel @Inject constructor(
 
     fun saveProfile(profile: SyncProfile, onDone: (Long) -> Unit = {}) = viewModelScope.launch {
         val id = syncRepository.upsertProfile(profile)
+        val savedProfile = profile.copy(id = id)
+        if (savedProfile.isActive && savedProfile.intervalHours > 0) {
+            scheduleSyncWorker(savedProfile)
+        }
         onDone(id)
     }
 
@@ -52,6 +61,31 @@ class SyncViewModel @Inject constructor(
             .addTag("manual_sync_$profileId")
             .build()
         WorkManager.getInstance(context).enqueue(request)
+    }
+
+    fun cancelSyncWorker(profileId: Long) {
+        WorkManager.getInstance(context).cancelUniqueWork("sync_profile_$profileId")
+    }
+
+    private fun scheduleSyncWorker(profile: SyncProfile) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(
+            profile.intervalHours.toLong(), TimeUnit.HOURS,
+            15, TimeUnit.MINUTES
+        )
+            .setConstraints(constraints)
+            .setInputData(workDataOf(SyncWorker.KEY_PROFILE_ID to profile.id))
+            .addTag("sync_profile_${profile.id}")
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "sync_profile_${profile.id}",
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request
+        )
     }
 
     suspend fun getProfileById(id: Long): SyncProfile? = syncRepository.getProfileById(id)

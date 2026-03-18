@@ -11,6 +11,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import com.filevault.pro.data.preferences.AppPreferences
 import com.filevault.pro.navigation.AppNavGraph
+import com.filevault.pro.presentation.screen.lock.AppLockScreen
 import com.filevault.pro.presentation.theme.FileVaultTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
@@ -37,13 +38,26 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by appPreferences.themeMode.collectAsState("SYSTEM")
+            val appLockEnabled by appPreferences.appLockEnabled.collectAsState(false)
             val darkTheme = when (themeMode) {
                 "DARK" -> true
                 "LIGHT" -> false
                 else -> isSystemInDarkTheme()
             }
+
+            var isUnlocked by androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(!appLockEnabled)
+            }
+
             FileVaultTheme(darkTheme = darkTheme, dynamicColor = true) {
-                AppNavGraph()
+                if (appLockEnabled && !isUnlocked) {
+                    AppLockScreen(
+                        appPreferences = appPreferences,
+                        onUnlocked = { isUnlocked = true }
+                    )
+                } else {
+                    AppNavGraph()
+                }
             }
         }
     }
