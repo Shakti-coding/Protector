@@ -12,7 +12,7 @@ data class SyncProfileEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val type: String,
-    val isActive: Boolean,
+    @ColumnInfo(name = "is_active") val isActive: Boolean,
     @ColumnInfo(name = "interval_hours") val intervalHours: Int,
     @ColumnInfo(name = "file_type_scope") val fileTypeScope: String,
     @ColumnInfo(name = "last_sync_at") val lastSyncAt: Long?,

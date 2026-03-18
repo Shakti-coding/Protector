@@ -123,11 +123,11 @@ interface FileEntryDao {
 }
 
 data class FolderRow(
-    val folderPath: String,
-    val folderName: String
+    @ColumnInfo(name = "folder_path") val folderPath: String,
+    @ColumnInfo(name = "folder_name") val folderName: String
 )
 
 data class HashCount(
-    val contentHash: String,
+    @ColumnInfo(name = "content_hash") val contentHash: String,
     val cnt: Int
 )

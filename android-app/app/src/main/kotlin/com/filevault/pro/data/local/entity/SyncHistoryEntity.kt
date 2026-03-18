@@ -50,6 +50,6 @@ fun SyncHistory.toEntity() = SyncHistoryEntity(
 
 @Entity(tableName = "excluded_folders")
 data class ExcludedFolderEntity(
-    @PrimaryKey val folderPath: String,
-    val addedAt: Long = System.currentTimeMillis()
+    @PrimaryKey @ColumnInfo(name = "folder_path") val folderPath: String,
+    @ColumnInfo(name = "added_at") val addedAt: Long = System.currentTimeMillis()
 )
