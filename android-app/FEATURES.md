@@ -280,10 +280,12 @@ Indexes: `file_type`, `date_modified`, `md5_hash`, composite `(file_type, is_del
 - **Battery:** Shortcut to battery optimization exemption settings.
 
 ### 7.14 Notification Center (`NotificationCenterScreen`)
-- Displays in-app notifications from `NotificationStore` (in-memory singleton).
-- Notification types: SCAN_COMPLETE, SYNC_COMPLETE, NEW_FILES, DUPLICATE_FOUND.
-- Dismiss individual notification; "Clear All" button.
-- Badge count shown on Dashboard.
+- Displays in-app notifications backed by Room (`notifications` table) — persists across app restarts.
+- `NotificationRepository` / `NotificationRepositoryImpl` expose a Flow of notifications from the DAO.
+- `NotificationStore` bridge object routes `add()` calls into the injected repository.
+- Notification types: SCAN, SYNC, ERROR, INFO.
+- "Clear All" deletes all rows; marking-read updates `isRead` column via `NotificationDao.markAllRead()`.
+- Unread badge count from `NotificationDao.getUnreadCount()` SQL query.
 
 ### 7.15 App Lock Screen (`AppLockScreen`)
 - 4-dot PIN indicator row.
@@ -305,13 +307,37 @@ Indexes: `file_type`, `date_modified`, `md5_hash`, composite `(file_type, is_del
 
 ---
 
-## 9. CSV Catalog Export
+## 9. Catalog Export (CSV + JSON)
 
-- Triggered from Settings screen.
-- Writes to: `Environment.DIRECTORY_DOWNLOADS / FileVaultPro / catalog_<timestamp>.csv`.
-- Columns: `path, name, size_bytes, mime_type, file_type, date_modified, date_added, width, height, duration_ms, camera_make, camera_model, has_gps, md5_hash, is_sync_ignored, last_synced_at`.
+### 9.1 CSV Export
+- Triggered from Settings → Export Catalog → CSV.
+- Columns: `path, name, folder, size_bytes, last_modified, mime_type, file_type, width, height, duration_ms, date_added`.
 - Header row included.
-- File opened via a share intent after writing.
+- File shared via a share intent after writing.
+- Implemented in `SettingsViewModel.exportCatalogCsv()`.
+
+### 9.2 JSON Export
+- Triggered from Settings → Export Catalog → JSON.
+- Serialises all file entry fields (including orientation, camera_make, camera_model, has_gps, date_taken, content_hash, is_sync_ignored, last_synced_at, is_deleted_from_device) as a JSON array.
+- Pretty-printed with 2-space indentation.
+- File shared via a share intent after writing.
+- Implemented in `SettingsViewModel.exportCatalogJson()`.
+
+### 9.3 Export format dialog
+- Settings screen shows an `AlertDialog` with CSV and JSON buttons when "Export Catalog" is tapped.
+
+---
+
+## 9a. Catalog Import (CSV + JSON)
+
+- Triggered from Settings → Import Catalog.
+- Opens the system file picker (`ACTION_OPEN_DOCUMENT`) accepting CSV, JSON, and text MIME types.
+- Auto-detects format from the content MIME type, URI path extension, or leading `[` character (JSON).
+- **CSV import**: parses header row, maps columns to `FileEntry` fields; derives `folderPath` / `folderName` from the file path where not present.
+- **JSON import**: parses the JSON array produced by the JSON export; all optional fields are handled gracefully.
+- All parsed entries are upserted via `FileRepository.upsertFiles()`.
+- Result shown in a `Snackbar` ("Imported N entries").
+- Implemented in `SettingsViewModel.importCatalog()`, `parseJson()`, `parseCsv()`.
 
 ---
 
@@ -465,9 +491,9 @@ The following items from the original 45-feature spec are noted as out of scope 
 |---|---|
 | Cloud metadata backup (WebDAV / Nextcloud) | Not implemented |
 | Root file access (su / Shizuku) | Not implemented |
-| JSON catalog export | Not implemented (CSV only) |
-| Catalog import from JSON/CSV | Not implemented |
-| NotificationStore persistence across restarts | In-memory only; cleared on app restart |
+| JSON catalog export | **Implemented** — see §9.2 |
+| Catalog import from JSON/CSV | **Implemented** — see §9a |
+| NotificationStore persistence across restarts | **Implemented** — Room-backed via `NotificationRepository` |
 | Thumbnail caching to disk (beyond Coil defaults) | Uses Coil default cache |
 | Multi-account Telegram (multiple bot tokens per profile) | Single bot token per profile |
 

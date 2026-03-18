@@ -1,5 +1,6 @@
 package com.filevault.pro.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -13,14 +14,14 @@ import com.filevault.pro.domain.model.SyncStatus
 )
 data class SyncHistoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val profileId: Long,
-    val profileName: String,
-    val startedAt: Long,
-    val completedAt: Long?,
-    val filesSynced: Int,
-    val filesFailed: Int,
+    @ColumnInfo(name = "profile_id") val profileId: Long,
+    @ColumnInfo(name = "profile_name") val profileName: String,
+    @ColumnInfo(name = "started_at") val startedAt: Long,
+    @ColumnInfo(name = "completed_at") val completedAt: Long?,
+    @ColumnInfo(name = "files_synced") val filesSynced: Int,
+    @ColumnInfo(name = "files_failed") val filesFailed: Int,
     val status: String,
-    val errorMessage: String?
+    @ColumnInfo(name = "error_message") val errorMessage: String?
 )
 
 fun SyncHistoryEntity.toDomain() = SyncHistory(

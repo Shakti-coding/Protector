@@ -80,7 +80,7 @@
     <string name="duplicates_title">Duplicate Finder</string>
     <string name="duplicates_empty">No duplicates found</string>
     <string name="duplicates_scan_hint">Tap Scan to check for duplicate files</string>
-    <string name="duplicates_found">Found %d duplicate groups (%d files)</string>
+    <string name="duplicates_found">Found %1$d duplicate groups (%2$d files)</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>

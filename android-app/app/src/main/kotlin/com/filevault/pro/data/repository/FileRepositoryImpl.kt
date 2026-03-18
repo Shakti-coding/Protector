@@ -45,6 +45,7 @@ class FileRepositoryImpl @Inject constructor(
         filter: FileFilter
     ): Flow<List<FileEntry>> =
         if (filter.searchQuery.isBlank()) fileEntryDao.getAllPhotosFlow()
+            .map { list -> list.map { it.toDomain() }.applySortAndFilter(sortOrder, filter) }
         else fileEntryDao.searchPhotos(filter.searchQuery)
             .map { list -> list.map { it.toDomain() }.applySortAndFilter(sortOrder, filter) }
 

@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.filevault.pro.data.local.AppDatabase
 import com.filevault.pro.data.local.dao.ExcludedFolderDao
 import com.filevault.pro.data.local.dao.FileEntryDao
+import com.filevault.pro.data.local.dao.NotificationDao
 import com.filevault.pro.data.local.dao.SyncHistoryDao
 import com.filevault.pro.data.local.dao.SyncProfileDao
 import dagger.Module
@@ -29,4 +30,5 @@ object DatabaseModule {
     @Provides fun provideSyncProfileDao(db: AppDatabase): SyncProfileDao = db.syncProfileDao()
     @Provides fun provideSyncHistoryDao(db: AppDatabase): SyncHistoryDao = db.syncHistoryDao()
     @Provides fun provideExcludedFolderDao(db: AppDatabase): ExcludedFolderDao = db.excludedFolderDao()
+    @Provides fun provideNotificationDao(db: AppDatabase): NotificationDao = db.notificationDao()
 }

@@ -1,5 +1,6 @@
 package com.filevault.pro.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.filevault.pro.domain.model.FileType
@@ -12,19 +13,19 @@ data class SyncProfileEntity(
     val name: String,
     val type: String,
     val isActive: Boolean,
-    val intervalHours: Int,
-    val fileTypeScope: String,
-    val lastSyncAt: Long?,
+    @ColumnInfo(name = "interval_hours") val intervalHours: Int,
+    @ColumnInfo(name = "file_type_scope") val fileTypeScope: String,
+    @ColumnInfo(name = "last_sync_at") val lastSyncAt: Long?,
     val smtpHost: String?,
     val smtpPort: Int?,
     val smtpUsername: String?,
-    val smtpPasswordKey: String?,
-    val emailRecipient: String?,
-    val emailSubjectTemplate: String?,
-    val telegramBotTokenKey: String?,
-    val telegramChatId: String?,
-    val telegramCaptionTemplate: String?,
-    val createdAt: Long
+    @ColumnInfo(name = "smtp_password_key") val smtpPasswordKey: String?,
+    @ColumnInfo(name = "email_recipient") val emailRecipient: String?,
+    @ColumnInfo(name = "email_subject_template") val emailSubjectTemplate: String?,
+    @ColumnInfo(name = "telegram_bot_token_key") val telegramBotTokenKey: String?,
+    @ColumnInfo(name = "telegram_chat_id") val telegramChatId: String?,
+    @ColumnInfo(name = "telegram_caption_template") val telegramCaptionTemplate: String?,
+    @ColumnInfo(name = "created_at") val createdAt: Long
 )
 
 fun SyncProfileEntity.toDomain() = SyncProfile(

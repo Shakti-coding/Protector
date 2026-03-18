@@ -182,13 +182,11 @@ fi
 # but POSIX shell has neither arrays nor command substitution, so instead we
 # post-process each arg (as a line of input to sed) to backslash-escape any
 # temporary variable.
-xargs -n1 \
-      < <( printf '%s\n' "$@" ) \
-      | sed ' s/[^-._[:alnum:]]/ /g; s/^ //; s/ $//; s/  */ /g; ' \
-      | tr '\n' ' ' \
-      | xargs -n1 \
-      | while IFS= read -r arg; do
+tempfile=$(mktemp)
+printf '%s\n' "$@" | xargs -n1 | sed ' s/[^-._[:alnum:]=/]/ /g; s/^ //; s/ $//; s/  */ /g; ' | tr '\n' ' ' | xargs -n1 > "$tempfile"
+while IFS= read -r arg; do
   args+=( "$arg" )
-done
+done < "$tempfile"
+rm "$tempfile"
 
 exec "$JAVACMD" "${args[@]}"

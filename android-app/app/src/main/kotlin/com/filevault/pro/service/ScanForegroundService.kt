@@ -74,7 +74,12 @@ class ScanForegroundService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 mediaStoreObserver.unregister()
-                stopForeground(true)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -112,7 +117,12 @@ class ScanForegroundService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Scan error: ${e.message}", e)
             } finally {
-                stopForeground(true)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
                 stopSelf()
             }
         }

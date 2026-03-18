@@ -20,12 +20,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.filevault.pro.domain.model.AppNotification
+import com.filevault.pro.domain.model.NotificationType
+import com.filevault.pro.domain.repository.NotificationRepository
 import com.filevault.pro.domain.repository.SyncRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -33,57 +37,43 @@ import java.util.Locale
 import javax.inject.Inject
 import androidx.hilt.navigation.compose.hiltViewModel
 
-enum class NotificationType { SCAN, SYNC, ERROR, INFO }
-
-data class AppNotification(
-    val id: Long = System.currentTimeMillis(),
-    val type: NotificationType,
-    val title: String,
-    val message: String,
-    val timestamp: Long = System.currentTimeMillis(),
-    val isRead: Boolean = false
-)
-
 object NotificationStore {
-    private val _notifications = MutableStateFlow<List<AppNotification>>(emptyList())
-    val notifications: StateFlow<List<AppNotification>> = _notifications.asStateFlow()
+    var repository: NotificationRepository? = null
 
     fun add(notification: AppNotification) {
-        _notifications.value = listOf(notification) + _notifications.value.take(99)
+        val repo = repository ?: return
+        GlobalScope.launch {
+            repo.add(notification)
+        }
     }
-
-    fun markAllRead() {
-        _notifications.value = _notifications.value.map { it.copy(isRead = true) }
-    }
-
-    fun clear() {
-        _notifications.value = emptyList()
-    }
-
-    val unreadCount: Int get() = _notifications.value.count { !it.isRead }
 }
 
 @HiltViewModel
 class NotificationCenterViewModel @Inject constructor(
+    private val notificationRepository: NotificationRepository,
     private val syncRepository: SyncRepository
 ) : ViewModel() {
 
-    val notifications: StateFlow<List<AppNotification>> = NotificationStore.notifications
+    val notifications: StateFlow<List<AppNotification>> = notificationRepository.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val unreadCount: StateFlow<Int> = notificationRepository.getUnreadCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     init {
+        NotificationStore.repository = notificationRepository
+
         viewModelScope.launch {
             syncRepository.getAllHistory().collectLatest { historyList ->
+                val existing = notifications.value.map { it.id }.toSet()
                 historyList.forEach { history ->
-                    val existing = NotificationStore.notifications.value.any {
-                        it.id == history.startedAt
-                    }
-                    if (!existing && history.completedAt != null) {
+                    if (history.completedAt != null && history.startedAt !in existing) {
                         val type = when (history.status.name) {
                             "SUCCESS" -> NotificationType.SYNC
                             "FAILED" -> NotificationType.ERROR
                             else -> NotificationType.SYNC
                         }
-                        NotificationStore.add(
+                        notificationRepository.add(
                             AppNotification(
                                 id = history.startedAt,
                                 type = type,
@@ -103,8 +93,8 @@ class NotificationCenterViewModel @Inject constructor(
         }
     }
 
-    fun markAllRead() = NotificationStore.markAllRead()
-    fun clearAll() = NotificationStore.clear()
+    fun markAllRead() = viewModelScope.launch { notificationRepository.markAllRead() }
+    fun clearAll() = viewModelScope.launch { notificationRepository.clearAll() }
 }
 
 @Composable
@@ -135,7 +125,9 @@ fun NotificationCenterScreen(
     ) { padding ->
         if (notifications.isEmpty()) {
             Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {

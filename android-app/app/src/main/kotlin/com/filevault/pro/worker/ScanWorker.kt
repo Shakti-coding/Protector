@@ -7,12 +7,12 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.filevault.pro.data.preferences.AppPreferences
 import com.filevault.pro.domain.repository.FileRepository
-import com.filevault.pro.presentation.screen.notifications.AppNotification
+import com.filevault.pro.domain.model.AppNotification
+import com.filevault.pro.domain.model.NotificationType
 import com.filevault.pro.presentation.screen.notifications.NotificationStore
-import com.filevault.pro.presentation.screen.notifications.NotificationType
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import kotlinx.coroutines.flow.first
+
 
 @HiltWorker
 class ScanWorker @AssistedInject constructor(

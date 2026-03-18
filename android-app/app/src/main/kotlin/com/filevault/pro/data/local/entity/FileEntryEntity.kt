@@ -1,5 +1,6 @@
 package com.filevault.pro.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -23,27 +24,27 @@ import com.filevault.pro.domain.model.FileType
 data class FileEntryEntity(
     @PrimaryKey val path: String,
     val name: String,
-    val folderPath: String,
-    val folderName: String,
-    val sizeBytes: Long,
-    val lastModified: Long,
-    val mimeType: String,
-    val fileType: String,
+    @ColumnInfo(name = "folder_path") val folderPath: String,
+    @ColumnInfo(name = "folder_name") val folderName: String,
+    @ColumnInfo(name = "size_bytes") val sizeBytes: Long,
+    @ColumnInfo(name = "last_modified") val lastModified: Long,
+    @ColumnInfo(name = "mime_type") val mimeType: String,
+    @ColumnInfo(name = "file_type") val fileType: String,
     val width: Int?,
     val height: Int?,
-    val durationMs: Long?,
+    @ColumnInfo(name = "duration_ms") val durationMs: Long?,
     val orientation: Int?,
-    val cameraMake: String?,
-    val cameraModel: String?,
-    val hasGps: Boolean,
-    val dateTaken: Long?,
-    val dateAdded: Long,
-    val isHidden: Boolean,
-    val contentHash: String?,
-    val thumbnailCachePath: String?,
-    val isSyncIgnored: Boolean,
-    val lastSyncedAt: Long?,
-    val isDeletedFromDevice: Boolean
+    @ColumnInfo(name = "camera_make") val cameraMake: String?,
+    @ColumnInfo(name = "camera_model") val cameraModel: String?,
+    @ColumnInfo(name = "has_gps") val hasGps: Boolean,
+    @ColumnInfo(name = "date_taken") val dateTaken: Long?,
+    @ColumnInfo(name = "date_added") val dateAdded: Long,
+    @ColumnInfo(name = "is_hidden") val isHidden: Boolean,
+    @ColumnInfo(name = "content_hash") val contentHash: String?,
+    @ColumnInfo(name = "thumbnail_cache_path") val thumbnailCachePath: String?,
+    @ColumnInfo(name = "is_sync_ignored") val isSyncIgnored: Boolean,
+    @ColumnInfo(name = "last_synced_at") val lastSyncedAt: Long?,
+    @ColumnInfo(name = "is_deleted_from_device") val isDeletedFromDevice: Boolean
 )
 
 fun FileEntryEntity.toDomain() = FileEntry(

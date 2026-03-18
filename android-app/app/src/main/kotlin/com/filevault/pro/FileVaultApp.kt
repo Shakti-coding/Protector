@@ -11,6 +11,9 @@ import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.filevault.pro.domain.repository.NotificationRepository
+import com.filevault.pro.presentation.screen.notifications.NotificationStore
+import com.filevault.pro.util.CrashLogStore
 import com.filevault.pro.worker.ScanWorker
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
@@ -22,6 +25,9 @@ class FileVaultApp : Application(), Configuration.Provider {
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
 
+    @Inject
+    lateinit var notificationRepository: NotificationRepository
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -30,6 +36,8 @@ class FileVaultApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        CrashLogStore.install(this)
+        NotificationStore.repository = notificationRepository
         createNotificationChannels()
         scheduleScanWorker()
     }
