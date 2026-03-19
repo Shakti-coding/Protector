@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
                 androidx.compose.runtime.mutableStateOf(!appLockEnabled)
             }
 
-            FileVaultTheme(darkTheme = darkTheme, dynamicColor = true) {
+            FileVaultTheme(darkTheme = darkTheme, dynamicColor = false) {
                 if (appLockEnabled && !isUnlocked) {
                     AppLockScreen(
                         appPreferences = appPreferences,

@@ -163,6 +163,11 @@ dependencies {
     // Palette
     implementation(libs.palette)
 
+    // Media3 / ExoPlayer
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.session)
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

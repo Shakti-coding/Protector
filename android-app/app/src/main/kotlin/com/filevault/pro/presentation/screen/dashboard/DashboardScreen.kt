@@ -51,7 +51,9 @@ fun DashboardScreen(
     onNavigateToPhotos: () -> Unit,
     onNavigateToVideos: () -> Unit,
     onNavigateToFiles: () -> Unit,
-    onNavigateToSync: () -> Unit
+    onNavigateToSync: () -> Unit,
+    onNavigateToBrowse: () -> Unit = {},
+    onNavigateToDuplicates: () -> Unit = {}
 ) {
     val stats by viewModel.stats.collectAsState()
     val syncProfiles by viewModel.syncProfiles.collectAsState()
@@ -126,7 +128,11 @@ fun DashboardScreen(
             item { Spacer(Modifier.height(16.dp)) }
         }
         item {
-            QuickActionsSection(onNavigateToSync = onNavigateToSync)
+            QuickActionsSection(
+                onNavigateToSync = onNavigateToSync,
+                onBrowse = onNavigateToBrowse,
+                onDuplicates = onNavigateToDuplicates
+            )
         }
     }
 }
@@ -506,18 +512,22 @@ private fun RecentFileThumb(file: FileEntry) {
 }
 
 @Composable
-private fun QuickActionsSection(onNavigateToSync: () -> Unit) {
+private fun QuickActionsSection(
+    onNavigateToSync: () -> Unit,
+    onBrowse: () -> Unit = {},
+    onDuplicates: () -> Unit = {}
+) {
     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
         SectionTitle("Quick Actions")
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             QuickActionChip(Icons.Default.Sync, "Sync Now", onClick = onNavigateToSync, modifier = Modifier.weight(1f))
-            QuickActionChip(Icons.Default.CompareArrows, "Duplicates", onClick = {}, modifier = Modifier.weight(1f))
+            QuickActionChip(Icons.Default.CompareArrows, "Duplicates", onClick = onDuplicates, modifier = Modifier.weight(1f))
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             QuickActionChip(Icons.Default.IosShare, "Export CSV", onClick = {}, modifier = Modifier.weight(1f))
-            QuickActionChip(Icons.Default.FolderOpen, "Browse", onClick = {}, modifier = Modifier.weight(1f))
+            QuickActionChip(Icons.Default.FolderOpen, "Browse", onClick = onBrowse, modifier = Modifier.weight(1f))
         }
     }
 }

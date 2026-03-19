@@ -90,6 +90,24 @@ interface FileEntryDao {
     @Query("UPDATE file_entries SET is_sync_ignored = :ignored WHERE path = :path")
     suspend fun setSyncIgnored(path: String, ignored: Boolean)
 
+    @Query("SELECT * FROM file_entries WHERE file_type = 'PHOTO'")
+    fun getAllPhotosFlowAll(): Flow<List<FileEntryEntity>>
+
+    @Query("SELECT * FROM file_entries WHERE file_type = 'VIDEO'")
+    fun getAllVideosFlowAll(): Flow<List<FileEntryEntity>>
+
+    @Query("SELECT * FROM file_entries")
+    fun getAllFilesFlowAll(): Flow<List<FileEntryEntity>>
+
+    @Query("SELECT path FROM file_entries WHERE is_deleted_from_device = 0")
+    suspend fun getAllNonDeletedPaths(): List<String>
+
+    @Query("UPDATE file_entries SET is_deleted_from_device = 1 WHERE path IN (:paths)")
+    suspend fun markDeletedBatch(paths: List<String>)
+
+    @Query("UPDATE file_entries SET is_deleted_from_device = 0 WHERE path = :path")
+    suspend fun markRestored(path: String)
+
     @Query("UPDATE file_entries SET content_hash = :hash WHERE path = :path")
     suspend fun updateContentHash(path: String, hash: String)
 

@@ -44,4 +44,10 @@ class VideosViewModel @Inject constructor(
     fun setSearchQuery(query: String) { _searchQuery.value = query }
     fun setSortOrder(order: SortOrder) { _sortOrder.value = order }
     fun setGridColumns(count: Int) { viewModelScope.launch { appPreferences.setGridColumnsVideos(count) } }
+
+    fun markDeletedFromApp(paths: Set<String>) {
+        viewModelScope.launch {
+            paths.forEach { fileRepository.markDeleted(it) }
+        }
+    }
 }

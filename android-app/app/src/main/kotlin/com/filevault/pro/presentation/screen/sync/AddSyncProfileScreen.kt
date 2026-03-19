@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -22,6 +23,12 @@ import com.filevault.pro.data.preferences.EncryptedPrefs
 import com.filevault.pro.domain.model.FileType
 import com.filevault.pro.domain.model.SyncProfile
 import com.filevault.pro.domain.model.SyncType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.Socket
+import java.net.URL
 
 @Composable
 fun AddSyncProfileScreen(
@@ -50,6 +57,9 @@ fun AddSyncProfileScreen(
     var subjectTemplate by remember { mutableStateOf("[FileVault] Sync {date} - {filecount} files") }
     var showPassword by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
+    var isTesting by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(profileId) {
         if (profileId != null) {
@@ -256,6 +266,101 @@ fun AddSyncProfileScreen(
                             AppTextField("Subject Template", subjectTemplate, { subjectTemplate = it })
                         }
                     }
+                }
+            }
+
+            testResult?.let { (success, message) ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (success) Color(0xFF1B5E20).copy(0.15f) else MaterialTheme.colorScheme.errorContainer.copy(0.5f)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            if (success) Icons.Default.CheckCircle else Icons.Default.Error,
+                            null,
+                            tint = if (success) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (success) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            OutlinedButton(
+                onClick = {
+                    isTesting = true
+                    testResult = null
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            when (syncType) {
+                                SyncType.TELEGRAM -> {
+                                    if (botToken.isBlank()) return@withContext Pair(false, "Bot token is empty")
+                                    try {
+                                        val url = URL("https://api.telegram.org/bot$botToken/getMe")
+                                        val conn = url.openConnection() as HttpURLConnection
+                                        conn.connectTimeout = 8000
+                                        conn.readTimeout = 8000
+                                        conn.requestMethod = "GET"
+                                        val code = conn.responseCode
+                                        val body = conn.inputStream.bufferedReader().readText()
+                                        conn.disconnect()
+                                        if (code == 200 && body.contains("\"ok\":true")) {
+                                            val nameMatch = Regex("\"first_name\":\"([^\"]+)\"").find(body)
+                                            val botName = nameMatch?.groupValues?.getOrNull(1) ?: "Unknown"
+                                            Pair(true, "Connected! Bot name: $botName")
+                                        } else {
+                                            Pair(false, "Invalid token (HTTP $code)")
+                                        }
+                                    } catch (e: Exception) {
+                                        Pair(false, "Connection failed: ${e.message}")
+                                    }
+                                }
+                                SyncType.EMAIL -> {
+                                    if (smtpHost.isBlank()) return@withContext Pair(false, "SMTP host is empty")
+                                    val port = smtpPort.toIntOrNull() ?: 587
+                                    try {
+                                        Socket().use { socket ->
+                                            socket.connect(
+                                                java.net.InetSocketAddress(smtpHost, port), 8000
+                                            )
+                                            val banner = socket.getInputStream()
+                                                .bufferedReader().readLine()
+                                            if (banner != null && banner.startsWith("220")) {
+                                                Pair(true, "SMTP server reachable: $banner")
+                                            } else {
+                                                Pair(false, "Unexpected response: ${banner?.take(100)}")
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        Pair(false, "Cannot connect to $smtpHost:$port — ${e.message}")
+                                    }
+                                }
+                            }
+                        }
+                        testResult = result
+                        isTesting = false
+                    }
+                },
+                enabled = !isTesting && !isSaving,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (isTesting) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Testing…")
+                } else {
+                    Icon(Icons.Default.NetworkCheck, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Test Connection")
                 }
             }
 

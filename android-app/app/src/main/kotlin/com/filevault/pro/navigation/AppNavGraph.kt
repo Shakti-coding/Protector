@@ -31,6 +31,7 @@ import com.filevault.pro.presentation.screen.sync.SyncHistoryScreen
 import com.filevault.pro.presentation.screen.sync.SyncProfilesScreen
 import com.filevault.pro.presentation.screen.sync.AddSyncProfileScreen
 import com.filevault.pro.presentation.screen.videos.VideosScreen
+import com.filevault.pro.presentation.screen.videoplayer.VideoPlayerScreen
 import com.filevault.pro.presentation.screen.crashlog.CrashLogScreen
 import com.filevault.pro.presentation.screen.diagnostic.DiagnosticScreen
 import com.filevault.pro.presentation.screen.notifications.NotificationCenterScreen
@@ -46,6 +47,9 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
     object FileDetail : Screen("file_detail/{path}", "Detail") {
         fun createRoute(path: String) = "file_detail/${URLEncoder.encode(path, "UTF-8")}"
+    }
+    object VideoPlayer : Screen("video_player/{path}", "Video Player") {
+        fun createRoute(path: String) = "video_player/${URLEncoder.encode(path, "UTF-8")}"
     }
     object Folders : Screen("folders", "Folders")
     object Duplicates : Screen("duplicates", "Duplicates")
@@ -126,10 +130,12 @@ fun AppNavGraph() {
             }
             composable(Screen.Dashboard.route) {
                 DashboardScreen(
-                    onNavigateToPhotos = { navController.navigate(Screen.Photos.route) },
-                    onNavigateToVideos = { navController.navigate(Screen.Videos.route) },
-                    onNavigateToFiles = { navController.navigate(Screen.Files.route) },
-                    onNavigateToSync = { navController.navigate(Screen.SyncProfiles.route) }
+                    onNavigateToPhotos  = { navController.navigate(Screen.Photos.route) },
+                    onNavigateToVideos  = { navController.navigate(Screen.Videos.route) },
+                    onNavigateToFiles   = { navController.navigate(Screen.Files.route) },
+                    onNavigateToSync    = { navController.navigate(Screen.SyncProfiles.route) },
+                    onNavigateToBrowse  = { navController.navigate(Screen.Folders.route) },
+                    onNavigateToDuplicates = { navController.navigate(Screen.Duplicates.route) }
                 )
             }
             composable(Screen.Photos.route) {
@@ -139,7 +145,7 @@ fun AppNavGraph() {
             }
             composable(Screen.Videos.route) {
                 VideosScreen(onFileClick = { path ->
-                    navController.navigate(Screen.FileDetail.createRoute(path))
+                    navController.navigate(Screen.VideoPlayer.createRoute(path))
                 })
             }
             composable(Screen.Files.route) {
@@ -156,14 +162,22 @@ fun AppNavGraph() {
                 val path = java.net.URLDecoder.decode(encodedPath, "UTF-8")
                 FileDetailScreen(path = path, onBack = { navController.popBackStack() })
             }
+            composable(
+                route = Screen.VideoPlayer.route,
+                arguments = listOf(navArgument("path") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val encodedPath = backStackEntry.arguments?.getString("path") ?: ""
+                val path = java.net.URLDecoder.decode(encodedPath, "UTF-8")
+                VideoPlayerScreen(path = path, onBack = { navController.popBackStack() })
+            }
             composable(Screen.Settings.route) {
                 SettingsScreen(
-                    onNavigateToSyncProfiles = { navController.navigate(Screen.SyncProfiles.route) },
-                    onNavigateToDuplicates = { navController.navigate(Screen.Duplicates.route) },
-                    onNavigateToFolders = { navController.navigate(Screen.Folders.route) },
+                    onNavigateToSyncProfiles  = { navController.navigate(Screen.SyncProfiles.route) },
+                    onNavigateToDuplicates    = { navController.navigate(Screen.Duplicates.route) },
+                    onNavigateToFolders       = { navController.navigate(Screen.Folders.route) },
                     onNavigateToNotifications = { navController.navigate(Screen.Notifications.route) },
-                    onNavigateToCrashLog = { navController.navigate(Screen.CrashLog.route) },
-                    onNavigateToDiagnostic = { navController.navigate(Screen.Diagnostic.route) }
+                    onNavigateToCrashLog      = { navController.navigate(Screen.CrashLog.route) },
+                    onNavigateToDiagnostic    = { navController.navigate(Screen.Diagnostic.route) }
                 )
             }
             composable(Screen.Folders.route) {
@@ -177,7 +191,7 @@ fun AppNavGraph() {
             }
             composable(Screen.SyncProfiles.route) {
                 SyncProfilesScreen(
-                    onAddProfile = { navController.navigate(Screen.AddSyncProfile.createRoute()) },
+                    onAddProfile  = { navController.navigate(Screen.AddSyncProfile.createRoute()) },
                     onEditProfile = { id -> navController.navigate(Screen.AddSyncProfile.createRoute(id)) },
                     onViewHistory = { id -> navController.navigate(Screen.SyncHistory.createRoute(id)) },
                     onBack = { navController.popBackStack() }

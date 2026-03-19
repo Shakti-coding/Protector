@@ -14,13 +14,12 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.filevault.pro.R
 import com.filevault.pro.data.preferences.AppPreferences
-import com.filevault.pro.domain.repository.FileRepository
 import com.filevault.pro.domain.model.AppNotification
 import com.filevault.pro.domain.model.NotificationType
+import com.filevault.pro.domain.repository.FileRepository
 import com.filevault.pro.presentation.screen.notifications.NotificationStore
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-
 
 @HiltWorker
 class ScanWorker @AssistedInject constructor(
@@ -36,12 +35,13 @@ class ScanWorker @AssistedInject constructor(
         const val KEY_PROGRESS_STAGE = "scan_progress_stage"
         const val KEY_PROGRESS_COUNT = "scan_progress_count"
         private const val NOTIFICATION_ID = 2001
-        private const val CHANNEL_ID = "scan_worker_channel"
+        private const val COMPLETION_NOTIFICATION_ID = 2002
+        const val CHANNEL_ID = "scan_worker_channel"
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo = buildForegroundInfo("Preparing scan…")
 
-    private fun buildForegroundInfo(text: String): ForegroundInfo {
+    private fun ensureChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID, "File Scan",
@@ -50,9 +50,13 @@ class ScanWorker @AssistedInject constructor(
             val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
         }
+    }
+
+    private fun buildForegroundInfo(text: String): ForegroundInfo {
+        ensureChannel()
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("FileVault Pro")
+            .setContentTitle("FileVault Pro — Scanning")
             .setContentText(text)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
@@ -65,7 +69,26 @@ class ScanWorker @AssistedInject constructor(
     }
 
     private suspend fun updateProgress(count: Int, stage: String) {
+        setForeground(buildForegroundInfo("$stage ($count files indexed)"))
         setProgress(workDataOf(KEY_PROGRESS_COUNT to count, KEY_PROGRESS_STAGE to stage))
+    }
+
+    private fun postCompletionNotification(totalCount: Int) {
+        ensureChannel()
+        val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val text = "Cataloged $totalCount files from your device storage"
+        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Scan Complete — FileVault Pro")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(
+                "Cataloged $totalCount files from your device storage.\nDatabase has been updated with the latest file catalog."
+            ))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .build()
+        nm.notify(COMPLETION_NOTIFICATION_ID, notification)
     }
 
     override suspend fun doWork(): Result {
@@ -79,7 +102,7 @@ class ScanWorker @AssistedInject constructor(
             val mediaCount = fileRepository.performMediaStoreScan()
             totalCount += mediaCount
             Log.d(TAG, "MediaStore scan: $mediaCount files")
-            updateProgress(mediaCount, "MediaStore done, walking filesystem…")
+            updateProgress(mediaCount, "MediaStore complete, scanning filesystem…")
 
             val fsCount = fileRepository.performFileSystemWalk { folder, count ->
                 if (count % 500 == 0) {
@@ -89,7 +112,7 @@ class ScanWorker @AssistedInject constructor(
             }
             totalCount += fsCount
             Log.d(TAG, "File system walk: $fsCount files")
-            updateProgress(totalCount, "Scan complete")
+            updateProgress(totalCount, "Finalizing…")
 
             appPreferences.setLastScanAt(System.currentTimeMillis())
             if (isInitial) {
@@ -97,6 +120,8 @@ class ScanWorker @AssistedInject constructor(
             }
 
             Log.d(TAG, "Scan complete. Total processed: $totalCount")
+
+            postCompletionNotification(totalCount)
 
             NotificationStore.add(
                 AppNotification(

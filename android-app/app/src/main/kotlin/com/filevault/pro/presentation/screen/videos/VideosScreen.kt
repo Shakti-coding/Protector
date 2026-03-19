@@ -1,5 +1,8 @@
 package com.filevault.pro.presentation.screen.videos
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -16,30 +19,110 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
+import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.filevault.pro.domain.model.FileEntry
 import com.filevault.pro.presentation.screen.photos.EmptyState
+import com.filevault.pro.presentation.screen.photos.MultiSelectActionBar
 import com.filevault.pro.presentation.screen.photos.SearchBar
 import com.filevault.pro.presentation.screen.photos.SortBottomSheet
 import com.filevault.pro.util.FileUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 @Composable
 fun VideosScreen(
     onFileClick: (String) -> Unit
 ) {
     val viewModel: VideosViewModel = hiltViewModel()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     val videos by viewModel.videos.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val sortOrder by viewModel.sortOrder.collectAsState()
     val gridColumns by viewModel.gridColumns.collectAsState()
     var showSortSheet by remember { mutableStateOf(false) }
     var selectedPaths by remember { mutableStateOf(setOf<String>()) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var isBusy by remember { mutableStateOf(false) }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val folder = DocumentFile.fromTreeUri(context, uri) ?: return@launch
+                selectedPaths.forEach { path ->
+                    val src = File(path)
+                    if (src.exists()) {
+                        val mime = FileUtils.getMimeType(src).ifBlank { "video/*" }
+                        val dest = folder.createFile(mime, src.name) ?: return@forEach
+                        context.contentResolver.openOutputStream(dest.uri)?.use { out ->
+                            src.inputStream().use { it.copyTo(out) }
+                        }
+                    }
+                }
+                withContext(Dispatchers.Main) { selectedPaths = emptySet() }
+            }
+        }
+    }
+
+    fun shareSelected() {
+        val uris = selectedPaths.mapNotNull { path ->
+            runCatching {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(path))
+            }.getOrNull()
+        }
+        if (uris.isEmpty()) return
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "video/*"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share ${selectedPaths.size} videos"))
+    }
+
+    fun zipAndShare() {
+        scope.launch(Dispatchers.IO) {
+            isBusy = true
+            try {
+                val zipFile = File(context.cacheDir, "videos_export_${System.currentTimeMillis()}.zip")
+                ZipOutputStream(zipFile.outputStream().buffered()).use { zos ->
+                    selectedPaths.forEach { path ->
+                        val f = File(path)
+                        if (f.exists()) {
+                            zos.putNextEntry(ZipEntry(f.name))
+                            f.inputStream().use { it.copyTo(zos) }
+                            zos.closeEntry()
+                        }
+                    }
+                }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", zipFile)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                withContext(Dispatchers.Main) {
+                    context.startActivity(Intent.createChooser(intent, "Share ZIP"))
+                }
+            } finally {
+                isBusy = false
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -51,6 +134,9 @@ fun VideosScreen(
                     },
                     actions = {
                         if (selectedPaths.isNotEmpty()) {
+                            IconButton(onClick = { selectedPaths = videos.map { it.path }.toSet() }) {
+                                Icon(Icons.Default.SelectAll, "Select All")
+                            }
                             IconButton(onClick = { selectedPaths = emptySet() }) { Icon(Icons.Default.Close, null) }
                         } else {
                             IconButton(onClick = { showSortSheet = true }) { Icon(Icons.Default.Sort, null) }
@@ -66,10 +152,23 @@ fun VideosScreen(
                         color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
                 }
             }
+        },
+        bottomBar = {
+            if (selectedPaths.isNotEmpty()) {
+                MultiSelectActionBar(
+                    selectedCount = selectedPaths.size,
+                    isBusy = isBusy,
+                    onShare = ::shareSelected,
+                    onZip = ::zipAndShare,
+                    onSaveToFolder = { folderPickerLauncher.launch(null) },
+                    onDeleteFromApp = { showDeleteConfirm = true },
+                    onClearSelection = { selectedPaths = emptySet() }
+                )
+            }
         }
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            if (videos.isEmpty()) EmptyState("No videos found", Icons.Default.VideoLibrary)
+            if (videos.isEmpty()) EmptyState("No videos found.\nRun a scan to catalog your device.", Icons.Default.VideoLibrary)
             else LazyVerticalGrid(
                 columns = GridCells.Fixed(gridColumns),
                 contentPadding = PaddingValues(4.dp),
@@ -91,6 +190,24 @@ fun VideosScreen(
                 }
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Remove from Catalog") },
+            text = { Text("Remove ${selectedPaths.size} video(s) from the FileVault catalog? The actual files on your device will NOT be deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.markDeletedFromApp(selectedPaths)
+                    selectedPaths = emptySet()
+                    showDeleteConfirm = false
+                }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 
     if (showSortSheet) {
@@ -120,10 +237,7 @@ fun VideoGridItem(
             modifier = Modifier.fillMaxSize()
         )
 
-        Box(
-            modifier = Modifier.fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.25f))
-        )
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.25f)))
 
         Box(
             modifier = Modifier.size(36.dp).align(Alignment.Center)
@@ -142,9 +256,7 @@ fun VideoGridItem(
                 Text(
                     FileUtils.formatDuration(file.durationMs),
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
+                    color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -152,16 +264,12 @@ fun VideoGridItem(
         Text(
             file.name.substringBeforeLast("."),
             modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
-            color = Color.White,
-            fontSize = 10.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            color = Color.White, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
         )
 
         if (isSelected) {
             Box(
-                modifier = Modifier.fillMaxSize()
-                    .background(MaterialTheme.colorScheme.primary.copy(0.4f)),
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(0.4f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(32.dp))

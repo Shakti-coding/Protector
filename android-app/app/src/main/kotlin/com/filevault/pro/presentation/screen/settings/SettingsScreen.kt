@@ -43,6 +43,7 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
 
     var showExportDialog by remember { mutableStateOf(false) }
+    var showIntervalDialog by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -97,7 +98,7 @@ fun SettingsScreen(
                     icon = Icons.Default.Timer,
                     title = "Scan Interval",
                     subtitle = "Every $scanInterval minutes",
-                    onClick = { }
+                    onClick = { showIntervalDialog = true }
                 )
             }
             item {
@@ -240,6 +241,48 @@ fun SettingsScreen(
                     showExportDialog = false
                     viewModel.exportCatalogCsv(context)
                 }) { Text("CSV") }
+            },
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showIntervalDialog) {
+        val options = listOf(15, 30, 60, 120, 360, 720, 1440)
+        AlertDialog(
+            onDismissRequest = { showIntervalDialog = false },
+            title = { Text("Scan Interval", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Select how often FileVault should automatically catalog your device files.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(0.6f))
+                    Spacer(Modifier.height(12.dp))
+                    options.forEach { minutes ->
+                        val label = when {
+                            minutes < 60 -> "$minutes minutes"
+                            minutes == 60 -> "1 hour"
+                            minutes % 60 == 0 -> "${minutes / 60} hours"
+                            else -> "$minutes minutes"
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = scanInterval == minutes,
+                                onClick = {
+                                    viewModel.setScanIntervalMinutes(minutes)
+                                    showIntervalDialog = false
+                                }
+                            )
+                            Text(label, modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showIntervalDialog = false }) { Text("Close") }
             },
             shape = RoundedCornerShape(16.dp)
         )

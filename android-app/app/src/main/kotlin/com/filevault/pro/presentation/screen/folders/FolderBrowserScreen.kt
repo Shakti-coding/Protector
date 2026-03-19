@@ -66,7 +66,7 @@ fun FolderBrowserScreen(
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
                 items(folders, key = { it.path }) { folder ->
-                    FolderItem(folder = folder, onClick = {})
+                    FolderItem(folder = folder, onClick = { onFileClick(folder.path) })
                 }
             }
         }

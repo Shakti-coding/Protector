@@ -47,4 +47,10 @@ class FilesViewModel @Inject constructor(private val fileRepository: FileReposit
     fun setSyncIgnored(path: String, ignored: Boolean) {
         viewModelScope.launch { fileRepository.setSyncIgnored(path, ignored) }
     }
+
+    fun markDeletedFromApp(paths: Set<String>) {
+        viewModelScope.launch {
+            paths.forEach { fileRepository.markDeleted(it) }
+        }
+    }
 }

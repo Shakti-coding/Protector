@@ -1,5 +1,8 @@
 package com.filevault.pro.presentation.screen.photos
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -14,20 +17,27 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
+import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.filevault.pro.domain.model.FileEntry
 import com.filevault.pro.domain.model.SortField
 import com.filevault.pro.domain.model.SortOrder
 import com.filevault.pro.util.FileUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -35,6 +45,8 @@ fun PhotosScreen(
     viewModel: PhotosViewModel = hiltViewModel(),
     onFileClick: (String) -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val photos by viewModel.photos.collectAsState()
     val sortOrder by viewModel.sortOrder.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -44,6 +56,75 @@ fun PhotosScreen(
     var showSortSheet by remember { mutableStateOf(false) }
     var selectedPaths by remember { mutableStateOf(setOf<String>()) }
     val isMultiSelect = selectedPaths.isNotEmpty()
+
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var isBusy by remember { mutableStateOf(false) }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                val folder = DocumentFile.fromTreeUri(context, uri) ?: return@launch
+                selectedPaths.forEach { path ->
+                    val src = File(path)
+                    if (src.exists()) {
+                        val mime = FileUtils.getMimeType(src).ifBlank { "*/*" }
+                        val dest = folder.createFile(mime, src.name) ?: return@forEach
+                        context.contentResolver.openOutputStream(dest.uri)?.use { out ->
+                            src.inputStream().use { it.copyTo(out) }
+                        }
+                    }
+                }
+                withContext(Dispatchers.Main) { selectedPaths = emptySet() }
+            }
+        }
+    }
+
+    fun shareSelected() {
+        val uris = selectedPaths.mapNotNull { path ->
+            runCatching {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(path))
+            }.getOrNull()
+        }
+        if (uris.isEmpty()) return
+        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "image/*"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Share ${selectedPaths.size} photos"))
+    }
+
+    fun zipAndShare() {
+        scope.launch(Dispatchers.IO) {
+            isBusy = true
+            try {
+                val zipFile = File(context.cacheDir, "photos_export_${System.currentTimeMillis()}.zip")
+                ZipOutputStream(zipFile.outputStream().buffered()).use { zos ->
+                    selectedPaths.forEach { path ->
+                        val f = File(path)
+                        if (f.exists()) {
+                            zos.putNextEntry(ZipEntry(f.name))
+                            f.inputStream().use { it.copyTo(zos) }
+                            zos.closeEntry()
+                        }
+                    }
+                }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", zipFile)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                withContext(Dispatchers.Main) {
+                    context.startActivity(Intent.createChooser(intent, "Share ZIP"))
+                }
+            } finally {
+                isBusy = false
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -55,6 +136,9 @@ fun PhotosScreen(
                     },
                     actions = {
                         if (isMultiSelect) {
+                            IconButton(onClick = { selectedPaths = photos.map { it.path }.toSet() }) {
+                                Icon(Icons.Default.SelectAll, "Select All")
+                            }
                             IconButton(onClick = { selectedPaths = emptySet() }) {
                                 Icon(Icons.Default.Close, "Deselect")
                             }
@@ -79,11 +163,24 @@ fun PhotosScreen(
                     itemCount = photos.size
                 )
             }
+        },
+        bottomBar = {
+            if (isMultiSelect) {
+                MultiSelectActionBar(
+                    selectedCount = selectedPaths.size,
+                    isBusy = isBusy,
+                    onShare = ::shareSelected,
+                    onZip = ::zipAndShare,
+                    onSaveToFolder = { folderPickerLauncher.launch(null) },
+                    onDeleteFromApp = { showDeleteConfirm = true },
+                    onClearSelection = { selectedPaths = emptySet() }
+                )
+            }
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (photos.isEmpty()) {
-                EmptyState(message = "No photos found", icon = Icons.Default.Photo)
+                EmptyState(message = "No photos found.\nRun a scan to catalog your device.", icon = Icons.Default.Photo)
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(gridColumns),
@@ -115,12 +212,69 @@ fun PhotosScreen(
         }
     }
 
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Remove from Catalog") },
+            text = { Text("Remove ${selectedPaths.size} photo(s) from the FileVault catalog? The actual files on your device will NOT be deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.markDeletedFromApp(selectedPaths)
+                    selectedPaths = emptySet()
+                    showDeleteConfirm = false
+                }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     if (showSortSheet) {
         SortBottomSheet(
             currentSort = sortOrder,
             onSortSelected = { viewModel.setSortOrder(it) },
             onDismiss = { showSortSheet = false }
         )
+    }
+}
+
+@Composable
+fun MultiSelectActionBar(
+    selectedCount: Int,
+    isBusy: Boolean,
+    onShare: () -> Unit,
+    onZip: () -> Unit,
+    onSaveToFolder: () -> Unit,
+    onDeleteFromApp: () -> Unit,
+    onClearSelection: () -> Unit
+) {
+    BottomAppBar(
+        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        contentPadding = PaddingValues(horizontal = 4.dp)
+    ) {
+        if (isBusy) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            }
+            return@BottomAppBar
+        }
+        IconButton(onClick = onShare) {
+            Icon(Icons.Default.Share, "Share", tint = MaterialTheme.colorScheme.primary)
+        }
+        IconButton(onClick = onZip) {
+            Icon(Icons.Default.Archive, "Zip & Share", tint = MaterialTheme.colorScheme.primary)
+        }
+        IconButton(onClick = onSaveToFolder) {
+            Icon(Icons.Default.SaveAlt, "Save to Folder", tint = MaterialTheme.colorScheme.primary)
+        }
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onDeleteFromApp) {
+            Icon(Icons.Default.DeleteOutline, "Remove from Catalog", tint = MaterialTheme.colorScheme.error)
+        }
+        IconButton(onClick = onClearSelection) {
+            Icon(Icons.Default.Close, "Deselect")
+        }
     }
 }
 
@@ -144,6 +298,16 @@ fun PhotoGridItem(
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
         )
+
+        if (file.isDeletedFromDevice) {
+            Box(
+                modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
+                    .size(16.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error.copy(0.85f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.DeleteOutline, null, tint = Color.White, modifier = Modifier.size(10.dp))
+            }
+        }
 
         if (file.lastSyncedAt != null) {
             Box(
@@ -280,15 +444,8 @@ fun EmptyState(message: String, icon: androidx.compose.ui.graphics.vector.ImageV
                 tint = MaterialTheme.colorScheme.onSurface.copy(0.2f))
             Spacer(Modifier.height(16.dp))
             Text(message, style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(0.4f))
+                color = MaterialTheme.colorScheme.onSurface.copy(0.4f),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
 }
-
-private fun SortBottomSheet(
-    currentSort: SortOrder,
-    onSortSelected: (SortOrder) -> Unit,
-    onDismiss: () -> Unit,
-    field: SortField,
-    label: String
-) {}

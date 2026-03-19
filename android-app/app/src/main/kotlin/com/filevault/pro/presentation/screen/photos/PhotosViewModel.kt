@@ -59,4 +59,10 @@ class PhotosViewModel @Inject constructor(
     fun toggleSyncIgnore(path: String, ignored: Boolean) {
         viewModelScope.launch { fileRepository.setSyncIgnored(path, ignored) }
     }
+
+    fun markDeletedFromApp(paths: Set<String>) {
+        viewModelScope.launch {
+            paths.forEach { fileRepository.markDeleted(it) }
+        }
+    }
 }
