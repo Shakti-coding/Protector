@@ -115,6 +115,7 @@ class ScanWorker @AssistedInject constructor(
             updateProgress(totalCount, "Finalizing…")
 
             appPreferences.setLastScanAt(System.currentTimeMillis())
+            appPreferences.setLastScanCount(totalCount)
             if (isInitial) {
                 appPreferences.setInitialScanDone(true)
             }
@@ -127,7 +128,7 @@ class ScanWorker @AssistedInject constructor(
                 AppNotification(
                     type = NotificationType.SCAN,
                     title = "Scan Complete",
-                    message = "Cataloged $totalCount files from your device storage"
+                    message = "Cataloged $totalCount files · MediaStore: $mediaCount · Filesystem: $fsCount"
                 )
             )
             Result.success()

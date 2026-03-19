@@ -64,8 +64,15 @@ class FileRepositoryImpl @Inject constructor(
         fileEntryDao.getPhotoCount(),
         fileEntryDao.getVideoCount(),
         fileEntryDao.getAudioCount(),
-        fileEntryDao.getDocumentCount()
-    ) { total, photos, videos, audio, docs ->
+        fileEntryDao.getDocumentCount(),
+        fileEntryDao.getTotalSizeBytes()
+    ) { arr ->
+        val total = arr[0] as Int
+        val photos = arr[1] as Int
+        val videos = arr[2] as Int
+        val audio = arr[3] as Int
+        val docs = arr[4] as Int
+        val sizeBytes = (arr[5] as Long?) ?: 0L
         val other = (total - photos - videos - audio - docs).coerceAtLeast(0)
         CatalogStats(
             totalFiles = total,
@@ -74,7 +81,7 @@ class FileRepositoryImpl @Inject constructor(
             totalAudio = audio,
             totalDocuments = docs,
             totalOther = other,
-            totalSizeBytes = 0L,
+            totalSizeBytes = sizeBytes,
             lastScanAt = null,
             lastSyncAt = null
         )
@@ -161,6 +168,7 @@ class FileRepositoryImpl @Inject constructor(
                 val rawPath  = if (idxData >= 0) getString(idxData) else null
                 val relPath  = if (idxRel  >= 0) getString(idxRel)  else null
                 val dispName = if (idxName >= 0) getString(idxName) else null
+                val mediaId  = if (idxId   >= 0) getLong(idxId) else 0L
 
                 val path = when {
                     !rawPath.isNullOrBlank() -> rawPath
@@ -168,9 +176,6 @@ class FileRepositoryImpl @Inject constructor(
                         val r = relPath.trimEnd('/') + "/"
                         "${Environment.getExternalStorageDirectory().absolutePath}/${r}${dispName}"
                     }
-                    idxId >= 0 -> ContentUris.withAppendedId(
-                        MediaStore.Files.getContentUri("external"), getLong(idxId)
-                    ).toString()
                     else -> ""
                 }
 
@@ -292,10 +297,19 @@ class FileRepositoryImpl @Inject constructor(
             null
         )
 
-        // Mark files in DB that are no longer in MediaStore as deleted from device
+        // Mark ONLY filesystem-path files (not content:// URIs) as deleted if they
+        // were in the DB from a previous scan but are no longer visible AND
+        // the actual file no longer exists on disk.
         try {
             val dbPaths = fileEntryDao.getAllNonDeletedPaths()
-            val deletedPaths = dbPaths.filter { it !in seenPaths }
+            val deletedPaths = dbPaths.filter { dbPath ->
+                // Only consider real file-system paths, not content:// URIs
+                if (dbPath.startsWith("content://")) return@filter false
+                // If it was seen in current scan, it's still there
+                if (dbPath in seenPaths) return@filter false
+                // Double-check: if the file physically doesn't exist, mark as deleted
+                !File(dbPath).exists()
+            }
             if (deletedPaths.isNotEmpty()) {
                 deletedPaths.chunked(500).forEach { chunk ->
                     fileEntryDao.markDeletedBatch(chunk)

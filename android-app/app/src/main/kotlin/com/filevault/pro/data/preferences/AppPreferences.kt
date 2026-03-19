@@ -22,6 +22,7 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
 
     companion object {
         val LAST_SCAN_AT = longPreferencesKey("last_scan_at")
+        val LAST_SCAN_COUNT = intPreferencesKey("last_scan_count")
         val INITIAL_SCAN_DONE = booleanPreferencesKey("initial_scan_done")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val GRID_COLUMNS_PHOTOS = intPreferencesKey("grid_columns_photos")
@@ -40,6 +41,7 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
     }
 
     val lastScanAt: Flow<Long?> = context.dataStore.data.map { it[LAST_SCAN_AT] }
+    val lastScanCount: Flow<Int> = context.dataStore.data.map { it[LAST_SCAN_COUNT] ?: 0 }
     val initialScanDone: Flow<Boolean> = context.dataStore.data.map { it[INITIAL_SCAN_DONE] ?: false }
     val themeMode: Flow<String> = context.dataStore.data.map { it[THEME_MODE] ?: "SYSTEM" }
     val gridColumnsPhotos: Flow<Int> = context.dataStore.data.map { it[GRID_COLUMNS_PHOTOS] ?: 3 }
@@ -55,6 +57,7 @@ class AppPreferences @Inject constructor(@ApplicationContext private val context
     val scanHiddenFolders: Flow<Boolean> = context.dataStore.data.map { it[SCAN_HIDDEN_FOLDERS] ?: true }
 
     suspend fun setLastScanAt(time: Long) = context.dataStore.edit { it[LAST_SCAN_AT] = time }
+    suspend fun setLastScanCount(count: Int) = context.dataStore.edit { it[LAST_SCAN_COUNT] = count }
     suspend fun setInitialScanDone(done: Boolean) = context.dataStore.edit { it[INITIAL_SCAN_DONE] = done }
     suspend fun setThemeMode(mode: String) = context.dataStore.edit { it[THEME_MODE] = mode }
     suspend fun setGridColumnsPhotos(count: Int) = context.dataStore.edit { it[GRID_COLUMNS_PHOTOS] = count }

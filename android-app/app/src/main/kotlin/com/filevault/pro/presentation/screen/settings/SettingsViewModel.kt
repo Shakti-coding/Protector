@@ -5,13 +5,20 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.filevault.pro.data.preferences.AppPreferences
 import com.filevault.pro.domain.model.FileEntry
 import com.filevault.pro.domain.model.FileFilter
 import com.filevault.pro.domain.model.FileType
 import com.filevault.pro.domain.model.SortOrder
 import com.filevault.pro.domain.repository.FileRepository
+import com.filevault.pro.worker.ScanWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,13 +29,19 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val appPreferences: AppPreferences,
     private val fileRepository: FileRepository
 ) : ViewModel() {
+
+    companion object {
+        const val PERIODIC_SCAN_TAG = "periodic_scan"
+    }
 
     val themeMode: StateFlow<String> = appPreferences.themeMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "SYSTEM")
@@ -41,6 +54,12 @@ class SettingsViewModel @Inject constructor(
 
     val scanIntervalMinutes: StateFlow<Int> = appPreferences.scanIntervalMinutes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 15)
+
+    val lastScanAt: StateFlow<Long?> = appPreferences.lastScanAt
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val lastScanCount: StateFlow<Int> = appPreferences.lastScanCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
@@ -57,6 +76,7 @@ class SettingsViewModel @Inject constructor(
 
     fun setScanIntervalMinutes(minutes: Int) = viewModelScope.launch {
         appPreferences.setScanIntervalMinutes(minutes)
+        reschedulePeriodic(minutes)
     }
 
     fun cycleTheme() = viewModelScope.launch {
@@ -67,6 +87,29 @@ class SettingsViewModel @Inject constructor(
             else -> "SYSTEM"
         }
         appPreferences.setThemeMode(next)
+    }
+
+    private fun reschedulePeriodic(intervalMinutes: Int) {
+        val wm = WorkManager.getInstance(context)
+        if (intervalMinutes <= 0) {
+            wm.cancelAllWorkByTag(PERIODIC_SCAN_TAG)
+            return
+        }
+        val constraints = Constraints.Builder()
+            .setRequiresBatteryNotLow(true)
+            .build()
+        val request = PeriodicWorkRequestBuilder<ScanWorker>(
+            intervalMinutes.toLong(), TimeUnit.MINUTES,
+            (intervalMinutes / 4).toLong().coerceAtLeast(15), TimeUnit.MINUTES
+        )
+            .setConstraints(constraints)
+            .addTag(PERIODIC_SCAN_TAG)
+            .build()
+        wm.enqueueUniquePeriodicWork(
+            PERIODIC_SCAN_TAG,
+            ExistingPeriodicWorkPolicy.REPLACE,
+            request
+        )
     }
 
     private suspend fun getFiles(): List<FileEntry> =
