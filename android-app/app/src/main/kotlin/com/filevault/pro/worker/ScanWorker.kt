@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import androidx.work.workDataOf
 import com.filevault.pro.data.preferences.AppPreferences
 import com.filevault.pro.domain.repository.FileRepository
 import com.filevault.pro.domain.model.AppNotification
@@ -45,12 +46,12 @@ class ScanWorker @AssistedInject constructor(
             Log.d(TAG, "MediaStore scan: $mediaCount files")
             updateProgress(mediaCount, "Scanning MediaStore…")
 
-            val fsCount = fileRepository.performFileSystemWalk(suspend { folder, count ->
+            val fsCount = fileRepository.performFileSystemWalk { folder, count ->
                 if (count % 500 == 0) {
                     Log.v(TAG, "Walking: $folder ($count files so far)")
                     updateProgress(count, "Walking filesystem…")
                 }
-            })
+            }
             totalCount += fsCount
             Log.d(TAG, "File system walk: $fsCount files")
             updateProgress(totalCount, "Scan complete")

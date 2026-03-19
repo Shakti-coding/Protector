@@ -85,7 +85,8 @@ fun DashboardScreen(
         }
         item { Spacer(Modifier.height(16.dp)) }
         item {
-            if (stats != null) StatsGridSection(stats!!, onNavigateToPhotos, onNavigateToVideos, onNavigateToFiles)
+            val currentStats = stats
+            if (currentStats != null) StatsGridSection(currentStats, onNavigateToPhotos, onNavigateToVideos, onNavigateToFiles)
             else Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
