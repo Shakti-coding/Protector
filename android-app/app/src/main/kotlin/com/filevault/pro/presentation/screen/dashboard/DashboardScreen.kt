@@ -97,7 +97,8 @@ fun DashboardScreen(
         }
         item { Spacer(Modifier.height(16.dp)) }
         item {
-            if (!isScanning && stats != null && stats.totalFiles == 0) {
+            val currentStats = stats
+            if (!isScanning && currentStats != null && currentStats.totalFiles == 0) {
                 ScanTroubleshootCard(
                     hasMediaAccess = hasMediaAccess,
                     hasAllFilesAccess = hasAllFilesAccess,
