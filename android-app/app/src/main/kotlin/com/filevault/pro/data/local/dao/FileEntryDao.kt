@@ -63,6 +63,22 @@ interface FileEntryDao {
     @Query("SELECT DISTINCT folder_path, folder_name FROM file_entries WHERE is_deleted_from_device = 0")
     fun getAllFolders(): Flow<List<FolderRow>>
 
+    @Query("""
+        SELECT folder_path, folder_name, COUNT(*) as fileCount, SUM(size_bytes) as totalSize
+        FROM file_entries WHERE is_deleted_from_device = 0
+        GROUP BY folder_path
+        ORDER BY fileCount DESC
+    """)
+    fun getFoldersWithCounts(): Flow<List<FolderCountRow>>
+
+    @Query("""
+        SELECT folder_path, folder_name, COUNT(*) as fileCount, SUM(size_bytes) as totalSize
+        FROM file_entries WHERE is_deleted_from_device = 0 AND file_type = :fileType
+        GROUP BY folder_path
+        ORDER BY fileCount DESC
+    """)
+    fun getFoldersWithCountsByType(fileType: String): Flow<List<FolderCountRow>>
+
     @Query("SELECT COUNT(*) FROM file_entries WHERE is_deleted_from_device = 0")
     fun getTotalCount(): Flow<Int>
 
@@ -93,13 +109,13 @@ interface FileEntryDao {
     @Query("UPDATE file_entries SET is_sync_ignored = :ignored WHERE path = :path")
     suspend fun setSyncIgnored(path: String, ignored: Boolean)
 
-    @Query("SELECT * FROM file_entries WHERE file_type = 'PHOTO'")
+    @Query("SELECT * FROM file_entries WHERE file_type = 'PHOTO' AND is_deleted_from_device = 0 ORDER BY last_modified DESC")
     fun getAllPhotosFlowAll(): Flow<List<FileEntryEntity>>
 
-    @Query("SELECT * FROM file_entries WHERE file_type = 'VIDEO'")
+    @Query("SELECT * FROM file_entries WHERE file_type = 'VIDEO' AND is_deleted_from_device = 0 ORDER BY last_modified DESC")
     fun getAllVideosFlowAll(): Flow<List<FileEntryEntity>>
 
-    @Query("SELECT * FROM file_entries")
+    @Query("SELECT * FROM file_entries WHERE is_deleted_from_device = 0 ORDER BY last_modified DESC")
     fun getAllFilesFlowAll(): Flow<List<FileEntryEntity>>
 
     @Query("SELECT path FROM file_entries WHERE is_deleted_from_device = 0")
@@ -151,4 +167,11 @@ data class FolderRow(
 data class HashCount(
     @ColumnInfo(name = "content_hash") val contentHash: String,
     val cnt: Int
+)
+
+data class FolderCountRow(
+    @ColumnInfo(name = "folder_path") val folderPath: String,
+    @ColumnInfo(name = "folder_name") val folderName: String,
+    @ColumnInfo(name = "fileCount") val fileCount: Int,
+    @ColumnInfo(name = "totalSize") val totalSize: Long
 )

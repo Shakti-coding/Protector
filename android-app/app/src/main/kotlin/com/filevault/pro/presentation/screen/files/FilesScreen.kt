@@ -35,6 +35,8 @@ import com.filevault.pro.presentation.screen.photos.SearchBar
 import com.filevault.pro.presentation.screen.photos.SortBottomSheet
 import com.filevault.pro.util.FileUtils
 import com.filevault.pro.util.MediaQueue
+import com.filevault.pro.util.simpleScrollbar
+import androidx.compose.foundation.lazy.rememberLazyListState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -181,7 +183,12 @@ fun FilesScreen(
                     GroupedFileList(files = files, selectedPaths = selectedPaths,
                         onFileClick = onFileClick, onLongClick = { selectedPaths = selectedPaths + it })
                 } else {
-                    LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
+                    val listState = rememberLazyListState()
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.simpleScrollbar(listState),
+                        contentPadding = PaddingValues(vertical = 4.dp)
+                    ) {
                         items(files, key = { it.path }) { file ->
                             FileListItem(
                                 file = file,
@@ -257,7 +264,8 @@ private fun GroupedFileList(
     onLongClick: (String) -> Unit
 ) {
     val grouped = files.groupBy { it.folderName }
-    LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
+    val listState = rememberLazyListState()
+    LazyColumn(state = listState, modifier = Modifier.simpleScrollbar(listState), contentPadding = PaddingValues(vertical = 4.dp)) {
         grouped.forEach { (folderName, folderFiles) ->
             item {
                 Surface(

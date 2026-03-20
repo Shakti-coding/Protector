@@ -16,7 +16,10 @@ import com.filevault.pro.MainActivity
 import com.filevault.pro.R
 import com.filevault.pro.data.preferences.AppPreferences
 import com.filevault.pro.domain.repository.FileRepository
+import com.filevault.pro.domain.model.AppNotification
+import com.filevault.pro.domain.model.NotificationType
 import com.filevault.pro.observer.MediaStoreObserver
+import com.filevault.pro.presentation.screen.notifications.NotificationStore
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -109,9 +112,11 @@ class ScanForegroundService : Service() {
     private fun performScan() {
         scope.launch {
             Log.d(TAG, "Foreground scan starting")
+            val scanStartedAt = System.currentTimeMillis()
             try {
                 updateNotification("Reading MediaStore…")
                 val mediaCount = fileRepository.performMediaStoreScan()
+                val scanDurationSec = (System.currentTimeMillis() - scanStartedAt) / 1000
 
                 appPreferences.setLastScanAt(System.currentTimeMillis())
                 appPreferences.setLastScanCount(mediaCount)
@@ -119,8 +124,30 @@ class ScanForegroundService : Service() {
 
                 updateNotification("Scan complete: $mediaCount files cataloged")
                 Log.d(TAG, "Foreground scan complete: $mediaCount files")
+
+                NotificationStore.add(
+                    AppNotification(
+                        id = scanStartedAt,
+                        type = NotificationType.SCAN,
+                        title = "Scan Complete",
+                        message = buildString {
+                            appendLine("$mediaCount files cataloged in ${scanDurationSec}s.")
+                            append("Tap to open FileVault Pro and browse your files.")
+                        },
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "Scan error: ${e.message}", e)
+                NotificationStore.add(
+                    AppNotification(
+                        id = scanStartedAt,
+                        type = NotificationType.ERROR,
+                        title = "Scan Failed",
+                        message = "An error occurred during scanning: ${e.message ?: "Unknown error"}",
+                        timestamp = System.currentTimeMillis()
+                    )
+                )
             } finally {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     stopForeground(STOP_FOREGROUND_REMOVE)

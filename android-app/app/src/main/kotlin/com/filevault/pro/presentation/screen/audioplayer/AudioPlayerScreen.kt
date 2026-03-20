@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -357,12 +358,19 @@ fun AudioPlayerScreen(
                 }
                 SmallControl(Icons.Default.Snooze, "Sleep") { showSleepTimer = true }
                 SmallControl(Icons.Default.Share, "Share") {
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "audio/*"
-                        putExtra(Intent.EXTRA_STREAM, Uri.fromFile(currentFile))
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    runCatching {
+                        val contentUri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            currentFile
+                        )
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "audio/*"
+                            putExtra(Intent.EXTRA_STREAM, contentUri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Share Audio"))
                     }
-                    context.startActivity(Intent.createChooser(intent, "Share Audio"))
                 }
             }
 

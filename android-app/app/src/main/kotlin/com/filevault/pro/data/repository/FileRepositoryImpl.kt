@@ -101,13 +101,39 @@ class FileRepositoryImpl @Inject constructor(
     }
 
     override fun getFolders(): Flow<List<FolderInfo>> =
-        fileEntryDao.getAllFolders().map { rows ->
-            rows.map { row ->
+        fileEntryDao.getFoldersWithCounts().map { rows ->
+            rows.distinctBy { it.folderPath }.map { row ->
                 FolderInfo(
                     path = row.folderPath,
                     name = row.folderName,
-                    fileCount = 0,
-                    totalSizeBytes = 0L,
+                    fileCount = row.fileCount,
+                    totalSizeBytes = row.totalSize,
+                    lastModified = 0L
+                )
+            }
+        }
+
+    override fun getFoldersWithCounts(): Flow<List<FolderInfo>> =
+        fileEntryDao.getFoldersWithCounts().map { rows ->
+            rows.distinctBy { it.folderPath }.map { row ->
+                FolderInfo(
+                    path = row.folderPath,
+                    name = row.folderName,
+                    fileCount = row.fileCount,
+                    totalSizeBytes = row.totalSize,
+                    lastModified = 0L
+                )
+            }
+        }
+
+    override fun getFoldersWithCountsByType(fileType: String): Flow<List<FolderInfo>> =
+        fileEntryDao.getFoldersWithCountsByType(fileType).map { rows ->
+            rows.distinctBy { it.folderPath }.map { row ->
+                FolderInfo(
+                    path = row.folderPath,
+                    name = row.folderName,
+                    fileCount = row.fileCount,
+                    totalSizeBytes = row.totalSize,
                     lastModified = 0L
                 )
             }

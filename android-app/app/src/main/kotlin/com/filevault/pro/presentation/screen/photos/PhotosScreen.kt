@@ -185,9 +185,11 @@ fun PhotosScreen(
             if (photos.isEmpty()) {
                 EmptyState(message = "No photos found.\nRun a scan to catalog your device.", icon = Icons.Default.Photo)
             } else {
+                val gridState = rememberLazyGridState()
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(gridColumns),
-                    modifier = Modifier.fillMaxSize(),
+                    state = gridState,
+                    modifier = Modifier.fillMaxSize().gridScrollbar(gridState),
                     contentPadding = PaddingValues(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)

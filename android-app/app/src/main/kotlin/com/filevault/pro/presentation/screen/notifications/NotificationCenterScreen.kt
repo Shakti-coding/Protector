@@ -225,9 +225,7 @@ private fun NotificationCard(notification: AppNotification) {
                 Text(
                     notification.message,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(0.7f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    color = MaterialTheme.colorScheme.onSurface.copy(0.7f)
                 )
             }
         }

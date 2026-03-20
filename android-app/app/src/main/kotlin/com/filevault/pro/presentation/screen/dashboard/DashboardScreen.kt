@@ -38,6 +38,7 @@ import coil.compose.AsyncImage
 import com.filevault.pro.domain.model.CatalogStats
 import com.filevault.pro.domain.model.FileEntry
 import com.filevault.pro.domain.model.FileType
+import com.filevault.pro.domain.model.FolderInfo
 import com.filevault.pro.domain.model.SyncProfile
 import com.filevault.pro.util.FileUtils
 import java.io.File
@@ -63,6 +64,7 @@ fun DashboardScreen(
     val isScanning by viewModel.isScanning.collectAsState()
     val scanProgressCount by viewModel.scanProgressCount.collectAsState()
     val scanStage by viewModel.scanStage.collectAsState()
+    val topFolders by viewModel.topFolders.collectAsState()
 
     val context = LocalContext.current
     val hasMediaAccess = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -89,7 +91,7 @@ fun DashboardScreen(
         item { Spacer(Modifier.height(16.dp)) }
         item {
             val currentStats = stats
-            if (currentStats != null) StatsGridSection(currentStats, onNavigateToPhotos, onNavigateToVideos, onNavigateToFiles)
+            if (currentStats != null) StatsGridSection(currentStats, topFolders, onNavigateToPhotos, onNavigateToVideos, onNavigateToFiles)
             else Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
@@ -225,6 +227,7 @@ private fun HeaderSection(
 @Composable
 private fun StatsGridSection(
     stats: CatalogStats,
+    topFolders: List<FolderInfo>,
     onPhotos: () -> Unit,
     onVideos: () -> Unit,
     onFiles: () -> Unit
@@ -268,7 +271,7 @@ private fun StatsGridSection(
             )
         }
         Spacer(Modifier.height(12.dp))
-        StorageCard(stats = stats)
+        StorageCard(stats = stats, topFolders = topFolders)
     }
 }
 
@@ -306,8 +309,9 @@ private fun StatCard(
 }
 
 @Composable
-private fun StorageCard(stats: CatalogStats) {
+private fun StorageCard(stats: CatalogStats, topFolders: List<FolderInfo> = emptyList()) {
     var showBreakdown by remember { mutableStateOf(false) }
+    var showFolderBreakdown by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable { showBreakdown = true },
@@ -386,6 +390,83 @@ private fun StorageCard(stats: CatalogStats) {
             },
             confirmButton = {
                 TextButton(onClick = { showBreakdown = false }) { Text("Close") }
+            },
+            dismissButton = {
+                if (topFolders.isNotEmpty()) {
+                    TextButton(onClick = { showBreakdown = false; showFolderBreakdown = true }) {
+                        Text("By Folder")
+                    }
+                }
+            }
+        )
+    }
+
+    if (showFolderBreakdown) {
+        AlertDialog(
+            onDismissRequest = { showFolderBreakdown = false },
+            title = { Text("Top Source Folders", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 400.dp)) {
+                    Text(
+                        "Top ${topFolders.size} folders by file count",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(0.5f)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LazyColumn {
+                        items(topFolders) { folder ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Folder, null,
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        folder.name,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        folder.path.substringBeforeLast("/").let {
+                                            if (it.length > 40) "…" + it.takeLast(40) else it
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(0.4f),
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        folder.fileCount.formatCount(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        FileUtils.formatSize(folder.totalSizeBytes),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(0.4f)
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(0.3f))
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFolderBreakdown = false }) { Text("Close") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFolderBreakdown = false; showBreakdown = true }) {
+                    Text("Back")
+                }
             }
         )
     }

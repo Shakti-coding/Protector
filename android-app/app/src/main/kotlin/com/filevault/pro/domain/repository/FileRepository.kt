@@ -10,6 +10,8 @@ interface FileRepository {
     fun getAllFiles(sortOrder: SortOrder, filter: FileFilter): Flow<List<FileEntry>>
     fun getStats(): Flow<CatalogStats>
     fun getFolders(): Flow<List<FolderInfo>>
+    fun getFoldersWithCounts(): Flow<List<FolderInfo>>
+    fun getFoldersWithCountsByType(fileType: String): Flow<List<FolderInfo>>
     val isScanRunning: StateFlow<Boolean>
     val scanSavedCount: StateFlow<Int>
     suspend fun upsertFile(file: FileEntry)

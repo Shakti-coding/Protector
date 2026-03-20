@@ -1,12 +1,23 @@
 package com.filevault.pro.presentation.screen.fileviewer
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -18,7 +29,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -28,8 +42,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import androidx.documentfile.provider.DocumentFile
 import com.filevault.pro.util.FileUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -37,13 +53,23 @@ import java.io.File
 import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.zip.ZipFile as JavaZipFile
 
-enum class ViewerMode { TEXT, JSON, BINARY_INFO, ARCHIVE_INFO }
+enum class ViewerMode { TEXT, JSON, BINARY_INFO, ARCHIVE_INFO, PDF }
+
+data class ZipEntryInfo(
+    val name: String,
+    val size: Long,
+    val compressedSize: Long,
+    val isDirectory: Boolean
+)
 
 data class ViewerState(
     val mode: ViewerMode = ViewerMode.TEXT,
     val lines: List<String> = emptyList(),
     val fileInfo: Map<String, String> = emptyMap(),
+    val zipEntries: List<ZipEntryInfo> = emptyList(),
+    val pdfPageCount: Int = 0,
     val isLoading: Boolean = true,
     val error: String? = null
 )
@@ -57,11 +83,56 @@ fun UniversalFileViewerScreen(
     val decodedPath = remember(path) { try { URLDecoder.decode(path, "UTF-8") } catch (_: Exception) { path } }
     val file = remember(decodedPath) { File(decodedPath) }
 
+    val scope = rememberCoroutineScope()
     var state by remember { mutableStateOf(ViewerState()) }
     var fontSize by remember { mutableIntStateOf(14) }
     var wordWrap by remember { mutableStateOf(true) }
     var showSearch by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var showUnzipProgress by remember { mutableStateOf(false) }
+    var unzipMessage by remember { mutableStateOf("") }
+
+    val unzipLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                showUnzipProgress = true
+                unzipMessage = "Extracting…"
+                try {
+                    val destFolder = DocumentFile.fromTreeUri(context, uri) ?: return@launch
+                    JavaZipFile(file).use { zip ->
+                        var extracted = 0
+                        for (entry in zip.entries()) {
+                            if (entry.isDirectory) continue
+                            val entryName = entry.name
+                            val parts = entryName.split("/")
+                            var parent = destFolder
+                            for (i in 0 until parts.size - 1) {
+                                parent = parent.findFile(parts[i])
+                                    ?: parent.createDirectory(parts[i])
+                                    ?: break
+                            }
+                            val lastName = parts.last()
+                            val mime = FileUtils.getMimeType(File(lastName)).ifBlank { "*/*" }
+                            val destFile = parent.createFile(mime, lastName) ?: continue
+                            context.contentResolver.openOutputStream(destFile.uri)?.use { out ->
+                                zip.getInputStream(entry).use { it.copyTo(out) }
+                            }
+                            extracted++
+                            unzipMessage = "Extracted $extracted files…"
+                        }
+                        unzipMessage = "Done! $extracted files extracted."
+                    }
+                } catch (e: Exception) {
+                    unzipMessage = "Error: ${e.message}"
+                } finally {
+                    kotlinx.coroutines.delay(2000)
+                    showUnzipProgress = false
+                }
+            }
+        }
+    }
 
     LaunchedEffect(decodedPath) {
         state = ViewerState(isLoading = true)
@@ -93,14 +164,23 @@ fun UniversalFileViewerScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { showSearch = !showSearch }) {
-                            Icon(Icons.Default.Search, "Search")
-                        }
-                        IconButton(onClick = { if (fontSize < 24) fontSize++ }) {
-                            Icon(Icons.Default.ZoomIn, "Larger text")
-                        }
-                        IconButton(onClick = { if (fontSize > 8) fontSize-- }) {
-                            Icon(Icons.Default.ZoomOut, "Smaller text")
+                        if (state.mode == ViewerMode.TEXT || state.mode == ViewerMode.JSON) {
+                            IconButton(onClick = { showSearch = !showSearch }) {
+                                Icon(Icons.Default.Search, "Search")
+                            }
+                            IconButton(onClick = { if (fontSize < 24) fontSize++ }) {
+                                Icon(Icons.Default.ZoomIn, "Larger text")
+                            }
+                            IconButton(onClick = { if (fontSize > 8) fontSize-- }) {
+                                Icon(Icons.Default.ZoomOut, "Smaller text")
+                            }
+                            IconButton(onClick = {
+                                val text = filteredLines.joinToString("\n")
+                                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                cm.setPrimaryClip(ClipData.newPlainText(file.name, text))
+                            }) {
+                                Icon(Icons.Default.ContentCopy, "Copy content")
+                            }
                         }
                         IconButton(onClick = {
                             val fileUri = FileProvider.getUriForFile(
@@ -186,7 +266,18 @@ fun UniversalFileViewerScreen(
                         }
                     }
                 }
-                state.mode == ViewerMode.BINARY_INFO || state.mode == ViewerMode.ARCHIVE_INFO -> {
+                state.mode == ViewerMode.PDF -> {
+                    PdfView(file = file, pageCount = state.pdfPageCount)
+                }
+                state.mode == ViewerMode.ARCHIVE_INFO -> {
+                    ZipView(
+                        file = file,
+                        entries = state.zipEntries,
+                        extraInfo = state.fileInfo,
+                        onUnzip = { unzipLauncher.launch(null) }
+                    )
+                }
+                state.mode == ViewerMode.BINARY_INFO -> {
                     FileInfoView(file = file, extraInfo = state.fileInfo)
                 }
                 state.mode == ViewerMode.JSON -> {
@@ -235,6 +326,242 @@ fun UniversalFileViewerScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
+                }
+            }
+
+            if (showUnzipProgress) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator()
+                            Spacer(Modifier.height(16.dp))
+                            Text(unzipMessage, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PdfView(file: File, pageCount: Int) {
+    val density = LocalDensity.current
+    val listState = rememberLazyListState()
+
+    if (pageCount == 0) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.PictureAsPdf, null, Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(12.dp))
+                Text("Cannot render PDF pages", color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(8.dp))
+                Text("Use 'Open With' button to view in external app",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
+            }
+        }
+        return
+    }
+
+    val pageIndices = (0 until pageCount).toList()
+    val bitmapCache = remember { mutableMapOf<Int, Bitmap?>() }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(0.5f)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Default.PictureAsPdf, null, tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("$pageCount page${if (pageCount > 1) "s" else ""}  •  ${FileUtils.formatSize(file.length())}",
+                    style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.weight(1f))
+                Text("Page ${(listState.firstVisibleItemIndex + 1).coerceAtMost(pageCount)} of $pageCount",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
+            }
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().background(Color(0xFF404040)),
+            contentPadding = PaddingValues(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(pageIndices, key = { it }) { pageIndex ->
+                var bitmap by remember(pageIndex) { mutableStateOf<Bitmap?>(bitmapCache[pageIndex]) }
+                LaunchedEffect(pageIndex) {
+                    if (bitmap == null) {
+                        withContext(Dispatchers.IO) {
+                            runCatching {
+                                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                                    PdfRenderer(fd).use { renderer ->
+                                        renderer.openPage(pageIndex).use { page ->
+                                            val widthPx = (density.density * 360).toInt().coerceAtLeast(480)
+                                            val heightPx = (widthPx * page.height.toFloat() / page.width.toFloat().coerceAtLeast(1f)).toInt()
+                                            val bmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+                                            bmp.eraseColor(android.graphics.Color.WHITE)
+                                            page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                            bmp
+                                        }
+                                    }
+                                }
+                            }.getOrNull()
+                        }.also { rendered ->
+                            if (rendered != null) {
+                                bitmapCache[pageIndex] = rendered
+                                bitmap = rendered
+                            }
+                        }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(4.dp),
+                    elevation = CardDefaults.cardElevation(4.dp)
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap!!.asImageBitmap(),
+                            contentDescription = "Page ${pageIndex + 1}",
+                            modifier = Modifier.fillMaxWidth(),
+                            contentScale = ContentScale.FillWidth
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().aspectRatio(0.77f)
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator(modifier = Modifier.size(32.dp))
+                                Spacer(Modifier.height(8.dp))
+                                Text("Page ${pageIndex + 1}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.Gray)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ZipView(
+    file: File,
+    entries: List<ZipEntryInfo>,
+    extraInfo: Map<String, String>,
+    onUnzip: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(0.5f)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.FolderZip, null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(file.name, fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            buildString {
+                                extraInfo["Files"]?.let { append("$it files") }
+                                extraInfo["Folders"]?.let { if (isNotEmpty()) append(", "); append("$it folders") }
+                                extraInfo["Compressed Size"]?.let { if (isNotEmpty()) append("  •  "); append(it) }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(0.6f)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = onUnzip,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Unarchive, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Unzip — Select Destination Folder")
+                }
+            }
+        }
+
+        if (entries.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Empty archive or unsupported format",
+                    color = MaterialTheme.colorScheme.onSurface.copy(0.4f))
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(vertical = 4.dp)
+            ) {
+                items(entries, key = { it.name }) { entry ->
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                entry.name.substringAfterLast("/").ifEmpty { entry.name },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        },
+                        supportingContent = if (!entry.isDirectory) {
+                            {
+                                Text(
+                                    entry.name.substringBeforeLast("/", "").ifEmpty { "/" },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(0.4f)
+                                )
+                            }
+                        } else null,
+                        leadingContent = {
+                            Icon(
+                                if (entry.isDirectory) Icons.Default.Folder else Icons.Default.InsertDriveFile,
+                                null,
+                                modifier = Modifier.size(20.dp),
+                                tint = if (entry.isDirectory) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.onSurface.copy(0.5f)
+                            )
+                        },
+                        trailingContent = if (!entry.isDirectory && entry.size > 0) {
+                            { Text(FileUtils.formatSize(entry.size),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(0.4f)) }
+                        } else null
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.padding(start = 52.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(0.3f)
+                    )
                 }
             }
         }
@@ -545,10 +872,41 @@ private suspend fun loadFile(file: File): ViewerState = withContext(Dispatchers.
     val sizeBytes = file.length()
 
     when {
-        ext in setOf("zip", "rar", "7z", "tar", "gz", "bz2", "xz") -> {
+        ext == "zip" -> {
+            val entries = runCatching {
+                JavaZipFile(file).use { zip ->
+                    zip.entries().toList().map { entry ->
+                        ZipEntryInfo(
+                            name = entry.name,
+                            size = entry.size.coerceAtLeast(0L),
+                            compressedSize = entry.compressedSize.coerceAtLeast(0L),
+                            isDirectory = entry.isDirectory
+                        )
+                    }.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
+                }
+            }.getOrElse { emptyList() }
+            val fileCount = entries.count { !it.isDirectory }
+            val dirCount = entries.count { it.isDirectory }
             ViewerState(
                 mode = ViewerMode.ARCHIVE_INFO,
-                fileInfo = mapOf("Type" to "Compressed Archive", "Compressed Size" to FileUtils.formatSize(sizeBytes)),
+                zipEntries = entries,
+                fileInfo = buildMap {
+                    put("Type", "ZIP Archive")
+                    put("Compressed Size", FileUtils.formatSize(sizeBytes))
+                    put("Files", fileCount.toString())
+                    if (dirCount > 0) put("Folders", dirCount.toString())
+                },
+                isLoading = false
+            )
+        }
+        ext in setOf("rar", "7z", "tar", "gz", "bz2", "xz") -> {
+            ViewerState(
+                mode = ViewerMode.ARCHIVE_INFO,
+                fileInfo = mapOf(
+                    "Type" to "${ext.uppercase()} Archive",
+                    "Compressed Size" to FileUtils.formatSize(sizeBytes),
+                    "Note" to "Cannot list contents of $ext format in-app"
+                ),
                 isLoading = false
             )
         }
@@ -560,9 +918,19 @@ private suspend fun loadFile(file: File): ViewerState = withContext(Dispatchers.
             )
         }
         ext == "pdf" -> {
+            val pageCount = runCatching {
+                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                    PdfRenderer(fd).use { it.pageCount }
+                }
+            }.getOrElse { 0 }
             ViewerState(
-                mode = ViewerMode.BINARY_INFO,
-                fileInfo = mapOf("Type" to "PDF Document", "Note" to "Use 'Open With' for full PDF viewing"),
+                mode = ViewerMode.PDF,
+                pdfPageCount = pageCount,
+                fileInfo = mapOf(
+                    "Type" to "PDF Document",
+                    "Pages" to pageCount.toString(),
+                    "Size" to FileUtils.formatSize(sizeBytes)
+                ),
                 isLoading = false
             )
         }

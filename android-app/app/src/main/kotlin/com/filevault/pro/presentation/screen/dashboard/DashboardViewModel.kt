@@ -7,6 +7,7 @@ import com.filevault.pro.data.preferences.AppPreferences
 import com.filevault.pro.domain.model.CatalogStats
 import com.filevault.pro.domain.model.FileEntry
 import com.filevault.pro.domain.model.FileFilter
+import com.filevault.pro.domain.model.FolderInfo
 import com.filevault.pro.domain.model.SortField
 import com.filevault.pro.domain.model.SortOrder
 import com.filevault.pro.domain.model.SyncProfile
@@ -50,6 +51,10 @@ class DashboardViewModel @Inject constructor(
 
     val isScanning: StateFlow<Boolean> = fileRepository.isScanRunning
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val topFolders: StateFlow<List<FolderInfo>> = fileRepository.getFoldersWithCounts()
+        .map { it.sortedByDescending { f -> f.fileCount }.take(20) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val scanProgressCount: StateFlow<Int?> = fileRepository.scanSavedCount
         .map<Int, Int?> { it }

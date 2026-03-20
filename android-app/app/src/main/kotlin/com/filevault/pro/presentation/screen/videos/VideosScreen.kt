@@ -35,6 +35,7 @@ import com.filevault.pro.presentation.screen.photos.SearchBar
 import com.filevault.pro.presentation.screen.photos.SortBottomSheet
 import com.filevault.pro.util.FileUtils
 import com.filevault.pro.util.MediaQueue
+import com.filevault.pro.util.gridScrollbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -170,12 +171,16 @@ fun VideosScreen(
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             if (videos.isEmpty()) EmptyState("No videos found.\nRun a scan to catalog your device.", Icons.Default.VideoLibrary)
-            else LazyVerticalGrid(
-                columns = GridCells.Fixed(gridColumns),
-                contentPadding = PaddingValues(4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
+            else {
+                val gridState = rememberLazyGridState()
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(gridColumns),
+                    state = gridState,
+                    modifier = Modifier.gridScrollbar(gridState),
+                    contentPadding = PaddingValues(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                 items(videos, key = { it.path }) { video ->
                     VideoGridItem(
                         file = video,
@@ -192,6 +197,7 @@ fun VideosScreen(
                         onLongClick = { selectedPaths = selectedPaths + video.path }
                     )
                 }
+            }
             }
         }
     }

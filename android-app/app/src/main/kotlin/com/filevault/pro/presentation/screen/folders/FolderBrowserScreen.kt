@@ -64,7 +64,7 @@ class FolderBrowserViewModel @Inject constructor(
         viewModelScope.launch {
             folders.collect { folderList ->
                 if (_currentPath.value == null) {
-                    _items.value = folderList.map { BrowseItem.Folder(it) }
+                    _items.value = folderList.distinctBy { it.path }.map { BrowseItem.Folder(it) }
                     _isLoading.value = false
                 }
             }
@@ -93,7 +93,7 @@ class FolderBrowserViewModel @Inject constructor(
                 _isLoading.value = true
                 if (parentPath == null) {
                     val folderList = folders.value
-                    _items.value = folderList.map { BrowseItem.Folder(it) }
+                    _items.value = folderList.distinctBy { it.path }.map { BrowseItem.Folder(it) }
                     _isLoading.value = false
                 } else {
                     loadFolderContents(parentPath)
@@ -235,7 +235,18 @@ fun FolderBrowserScreen(
                     }
                 }
                 else -> {
-                    LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
+                    val listState = rememberLazyListState()
+                    val firstVisible = listState.firstVisibleItemIndex
+                    val visibleCount = listState.layoutInfo.visibleItemsInfo.size
+                    val totalItems = items.size
+                    Box(Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .simpleScrollbar(listState)
+                    ) {
                         items(items, key = {
                             when (it) {
                                 is BrowseItem.Folder -> "folder:${it.info.path}"
@@ -257,6 +268,25 @@ fun FolderBrowserScreen(
                                 }
                             }
                         }
+                    }
+                    if (totalItems > 0 && listState.isScrollInProgress) {
+                        val end = (firstVisible + visibleCount).coerceAtMost(totalItems)
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 14.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.8f),
+                            tonalElevation = 4.dp
+                        ) {
+                            Text(
+                                "${firstVisible + 1}–$end / $totalItems",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.inverseOnSurface
+                            )
+                        }
+                    }
                     }
                 }
             }
