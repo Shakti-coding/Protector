@@ -27,12 +27,14 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.graphics.asImageBitmap
 import com.filevault.pro.domain.model.FileEntry
 import com.filevault.pro.domain.model.FileType
 import com.filevault.pro.presentation.screen.photos.EmptyState
 import com.filevault.pro.presentation.screen.photos.MultiSelectActionBar
 import com.filevault.pro.presentation.screen.photos.SearchBar
 import com.filevault.pro.presentation.screen.photos.SortBottomSheet
+import com.filevault.pro.util.rememberFileThumbnail
 import com.filevault.pro.util.FileUtils
 import com.filevault.pro.util.MediaQueue
 import com.filevault.pro.util.simpleScrollbar
@@ -311,6 +313,9 @@ fun FileListItem(
     onLongClick: (() -> Unit)? = null,
     indent: Boolean = false
 ) {
+    val context = LocalContext.current
+    val thumbnail = rememberFileThumbnail(file, context)
+
     ListItem(
         modifier = Modifier
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -340,16 +345,27 @@ fun FileListItem(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                if (isSelected) {
-                    Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp))
-                } else {
-                    Text(
-                        file.name.substringAfterLast(".").uppercase().take(3),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = fileTypeColor(file.fileType)
-                    )
+                when {
+                    isSelected -> {
+                        Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp))
+                    }
+                    thumbnail != null -> {
+                        androidx.compose.foundation.Image(
+                            bitmap = thumbnail.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    }
+                    else -> {
+                        Text(
+                            file.name.substringAfterLast(".").uppercase().take(3),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = fileTypeColor(file.fileType)
+                        )
+                    }
                 }
             }
         },

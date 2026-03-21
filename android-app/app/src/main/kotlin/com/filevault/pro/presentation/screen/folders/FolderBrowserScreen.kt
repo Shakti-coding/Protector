@@ -1,5 +1,9 @@
 package com.filevault.pro.presentation.screen.folders
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -15,10 +19,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -27,12 +33,14 @@ import com.filevault.pro.domain.model.FileType
 import com.filevault.pro.domain.model.FolderInfo
 import com.filevault.pro.domain.repository.FileRepository
 import com.filevault.pro.util.FileUtils
-import com.filevault.pro.util.MediaQueue
 import com.filevault.pro.util.simpleScrollbar
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 
 sealed class BrowseItem {
@@ -48,8 +56,22 @@ class FolderBrowserViewModel @Inject constructor(
     private val _currentPath = MutableStateFlow<String?>(null)
     val currentPath: StateFlow<String?> = _currentPath
 
-    private val _items = MutableStateFlow<List<BrowseItem>>(emptyList())
-    val items: StateFlow<List<BrowseItem>> = _items
+    private val _rawItems = MutableStateFlow<List<BrowseItem>>(emptyList())
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery
+
+    val items: StateFlow<List<BrowseItem>> = combine(_rawItems, _searchQuery) { list, q ->
+        if (q.isBlank()) list
+        else list.filter { item ->
+            when (item) {
+                is BrowseItem.Folder -> item.info.name.contains(q, ignoreCase = true) ||
+                        item.info.path.contains(q, ignoreCase = true)
+                is BrowseItem.FileItem -> item.entry.name.contains(q, ignoreCase = true) ||
+                        item.entry.path.contains(q, ignoreCase = true)
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _pathStack = MutableStateFlow<List<String>>(emptyList())
     val pathStack: StateFlow<List<String>> = _pathStack
@@ -64,14 +86,17 @@ class FolderBrowserViewModel @Inject constructor(
         viewModelScope.launch {
             folders.collect { folderList ->
                 if (_currentPath.value == null) {
-                    _items.value = folderList.distinctBy { it.path }.map { BrowseItem.Folder(it) }
+                    _rawItems.value = folderList.distinctBy { it.path }.map { BrowseItem.Folder(it) }
                     _isLoading.value = false
                 }
             }
         }
     }
 
+    fun setSearchQuery(q: String) { _searchQuery.value = q }
+
     fun navigateIntoFolder(folderPath: String) {
+        _searchQuery.value = ""
         viewModelScope.launch {
             _isLoading.value = true
             _pathStack.value = _pathStack.value + (folderPath)
@@ -85,6 +110,7 @@ class FolderBrowserViewModel @Inject constructor(
         return if (stack.isEmpty()) {
             false
         } else {
+            _searchQuery.value = ""
             val newStack = stack.dropLast(1)
             _pathStack.value = newStack
             val parentPath = newStack.lastOrNull()
@@ -93,7 +119,7 @@ class FolderBrowserViewModel @Inject constructor(
                 _isLoading.value = true
                 if (parentPath == null) {
                     val folderList = folders.value
-                    _items.value = folderList.distinctBy { it.path }.map { BrowseItem.Folder(it) }
+                    _rawItems.value = folderList.distinctBy { it.path }.map { BrowseItem.Folder(it) }
                     _isLoading.value = false
                 } else {
                     loadFolderContents(parentPath)
@@ -145,7 +171,7 @@ class FolderBrowserViewModel @Inject constructor(
             }
         }
 
-        _items.value = browseItems
+        _rawItems.value = browseItems
         _isLoading.value = false
     }
 }
@@ -169,6 +195,7 @@ private fun getMime(ext: String) = when (ext) {
     else -> "*/*"
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FolderBrowserScreen(
     viewModel: FolderBrowserViewModel = hiltViewModel(),
@@ -179,42 +206,83 @@ fun FolderBrowserScreen(
     val currentPath by viewModel.currentPath.collectAsState()
     val pathStack by viewModel.pathStack.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val context = LocalContext.current
+
+    var showSearch by remember { mutableStateOf(false) }
+    var selectedFile by remember { mutableStateOf<FileEntry?>(null) }
+    var selectedFolder by remember { mutableStateOf<FolderInfo?>(null) }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     BackHandler(enabled = pathStack.isNotEmpty()) {
         viewModel.navigateUp()
     }
 
+    if (selectedFile != null) {
+        FileDetailSheet(
+            file = selectedFile!!,
+            sheetState = sheetState,
+            onDismiss = { selectedFile = null },
+            onOpen = { onFileClick(selectedFile!!.path); selectedFile = null },
+            context = context
+        )
+    }
+
+    if (selectedFolder != null) {
+        FolderDetailSheet(
+            folder = selectedFolder!!,
+            sheetState = sheetState,
+            onDismiss = { selectedFolder = null },
+            onOpen = { viewModel.navigateIntoFolder(selectedFolder!!.path); selectedFolder = null },
+            context = context
+        )
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            if (currentPath == null) "Browse" else File(currentPath!!).name,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (currentPath != null) {
+            if (showSearch) {
+                SearchBar(
+                    query = searchQuery,
+                    onQueryChange = { viewModel.setSearchQuery(it) },
+                    onClose = { showSearch = false; viewModel.setSearchQuery("") }
+                )
+            } else {
+                TopAppBar(
+                    title = {
+                        Column {
                             Text(
-                                currentPath!!,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(0.5f),
+                                if (currentPath == null) "Browse" else File(currentPath!!).name,
+                                fontWeight = FontWeight.Bold,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                fontSize = 11.sp
+                                overflow = TextOverflow.Ellipsis
                             )
+                            if (currentPath != null) {
+                                Text(
+                                    currentPath!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(0.5f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            if (!viewModel.navigateUp()) onBack()
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showSearch = true }) {
+                            Icon(Icons.Default.Search, "Search")
                         }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        if (!viewModel.navigateUp()) onBack()
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
-                    }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -227,10 +295,17 @@ fun FolderBrowserScreen(
                 items.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.FolderOpen, null, Modifier.size(64.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(0.2f))
+                            Icon(
+                                if (searchQuery.isNotBlank()) Icons.Default.SearchOff else Icons.Default.FolderOpen,
+                                null, Modifier.size(64.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(0.2f)
+                            )
                             Spacer(Modifier.height(12.dp))
-                            Text("Empty folder", color = MaterialTheme.colorScheme.onSurface.copy(0.4f))
+                            Text(
+                                if (searchQuery.isNotBlank()) "No results for \"$searchQuery\""
+                                else "Empty folder",
+                                color = MaterialTheme.colorScheme.onSurface.copy(0.4f)
+                            )
                         }
                     }
                 }
@@ -240,53 +315,55 @@ fun FolderBrowserScreen(
                     val visibleCount = listState.layoutInfo.visibleItemsInfo.size
                     val totalItems = items.size
                     Box(Modifier.fillMaxSize()) {
-                    LazyColumn(
-                        state = listState,
-                        contentPadding = PaddingValues(vertical = 8.dp),
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .simpleScrollbar(listState)
-                    ) {
-                        items(items, key = {
-                            when (it) {
-                                is BrowseItem.Folder -> "folder:${it.info.path}"
-                                is BrowseItem.FileItem -> "file:${it.entry.path}"
-                            }
-                        }) { item ->
-                            when (item) {
-                                is BrowseItem.Folder -> {
-                                    FolderItemRow(
-                                        folder = item.info,
-                                        onClick = { viewModel.navigateIntoFolder(item.info.path) }
-                                    )
-                                }
-                                is BrowseItem.FileItem -> {
-                                    FileItemRow(
-                                        file = item.entry,
-                                        onClick = { onFileClick(item.entry.path) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    if (totalItems > 0 && listState.isScrollInProgress) {
-                        val end = (firstVisible + visibleCount).coerceAtMost(totalItems)
-                        Surface(
+                        LazyColumn(
+                            state = listState,
+                            contentPadding = PaddingValues(vertical = 8.dp),
                             modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .padding(end = 14.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.8f),
-                            tonalElevation = 4.dp
+                                .fillMaxSize()
+                                .simpleScrollbar(listState)
                         ) {
-                            Text(
-                                "${firstVisible + 1}–$end / $totalItems",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.inverseOnSurface
-                            )
+                            items(items, key = {
+                                when (it) {
+                                    is BrowseItem.Folder -> "folder:${it.info.path}"
+                                    is BrowseItem.FileItem -> "file:${it.entry.path}"
+                                }
+                            }) { item ->
+                                when (item) {
+                                    is BrowseItem.Folder -> {
+                                        FolderItemRow(
+                                            folder = item.info,
+                                            onClick = { viewModel.navigateIntoFolder(item.info.path) },
+                                            onLongClick = { selectedFolder = item.info }
+                                        )
+                                    }
+                                    is BrowseItem.FileItem -> {
+                                        FileItemRow(
+                                            file = item.entry,
+                                            onClick = { onFileClick(item.entry.path) },
+                                            onLongClick = { selectedFile = item.entry }
+                                        )
+                                    }
+                                }
+                            }
                         }
-                    }
+                        if (totalItems > 0 && listState.isScrollInProgress) {
+                            val end = (firstVisible + visibleCount).coerceAtMost(totalItems)
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .padding(end = 14.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.8f),
+                                tonalElevation = 4.dp
+                            ) {
+                                Text(
+                                    "${firstVisible + 1}–$end / $totalItems",
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.inverseOnSurface
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -294,8 +371,208 @@ fun FolderBrowserScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FolderItemRow(folder: FolderInfo, onClick: () -> Unit) {
+private fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    TopAppBar(
+        title = {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text("Search files & folders…") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                    focusedBorderColor = androidx.compose.ui.graphics.Color.Transparent
+                )
+            )
+        },
+        navigationIcon = {
+            IconButton(onClick = onClose) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close search")
+            }
+        },
+        actions = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(Icons.Default.Clear, "Clear")
+                }
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FileDetailSheet(
+    file: FileEntry,
+    sheetState: SheetState,
+    onDismiss: () -> Unit,
+    onOpen: () -> Unit,
+    context: Context
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = fileTypeColor(file.fileType).copy(0.15f)
+                ) {
+                    Text(
+                        file.fileType.name,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = fileTypeColor(file.fileType),
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    file.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            DetailRow(Icons.Default.FolderOpen, "Location", file.folderPath)
+            DetailRow(Icons.Default.Storage, "Size", FileUtils.formatSize(file.sizeBytes))
+            DetailRow(Icons.Default.CalendarToday, "Modified", formatDetailDate(file.lastModified))
+            DetailRow(Icons.Default.Description, "MIME", file.mimeType ?: "Unknown")
+            if (file.lastSyncedAt != null) {
+                DetailRow(Icons.Default.CloudDone, "Last synced", formatDetailDate(file.lastSyncedAt))
+            }
+            Spacer(Modifier.height(20.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(onClick = onOpen, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.OpenInNew, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Open")
+                }
+                OutlinedButton(
+                    onClick = {
+                        runCatching {
+                            val uri = FileProvider.getUriForFile(
+                                context, "${context.packageName}.fileprovider", File(file.path)
+                            )
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = file.mimeType ?: "*/*"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Share ${file.name}"))
+                        }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Share")
+                }
+                OutlinedButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("File path", file.path))
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.CopyAll, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy path")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FolderDetailSheet(
+    folder: FolderInfo,
+    sheetState: SheetState,
+    onDismiss: () -> Unit,
+    onOpen: () -> Unit,
+    context: Context
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    folder.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            DetailRow(Icons.Default.FolderOpen, "Path", folder.path)
+            DetailRow(Icons.Default.InsertDriveFile, "Items", "${folder.fileCount}")
+            if (folder.totalSizeBytes > 0) {
+                DetailRow(Icons.Default.Storage, "Total size", FileUtils.formatSize(folder.totalSizeBytes))
+            }
+            Spacer(Modifier.height(20.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(onClick = onOpen, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.OpenInNew, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Open")
+                }
+                OutlinedButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Folder path", folder.path))
+                    },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.CopyAll, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy path")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailRow(icon: ImageVector, label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(icon, null, modifier = Modifier.size(18.dp).padding(top = 2.dp),
+            tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(label, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
+            Text(value, style = MaterialTheme.typography.bodySmall,
+                maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(0.2f))
+}
+
+@Composable
+private fun FolderItemRow(folder: FolderInfo, onClick: () -> Unit, onLongClick: () -> Unit) {
     ListItem(
         modifier = Modifier.clickable(onClick = onClick),
         headlineContent = {
@@ -311,7 +588,15 @@ private fun FolderItemRow(folder: FolderInfo, onClick: () -> Unit) {
         leadingContent = {
             Icon(Icons.Default.Folder, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
         },
-        trailingContent = { Icon(Icons.Default.ChevronRight, null) }
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onLongClick, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.MoreVert, "Details", Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(0.4f))
+                }
+                Icon(Icons.Default.ChevronRight, null)
+            }
+        }
     )
     HorizontalDivider(
         modifier = Modifier.padding(start = 72.dp),
@@ -320,7 +605,7 @@ private fun FolderItemRow(folder: FolderInfo, onClick: () -> Unit) {
 }
 
 @Composable
-private fun FileItemRow(file: FileEntry, onClick: () -> Unit) {
+private fun FileItemRow(file: FileEntry, onClick: () -> Unit, onLongClick: () -> Unit) {
     ListItem(
         modifier = Modifier.clickable(onClick = onClick),
         headlineContent = {
@@ -361,7 +646,10 @@ private fun FileItemRow(file: FileEntry, onClick: () -> Unit) {
             }
         },
         trailingContent = {
-            Icon(Icons.Default.OpenInNew, null, tint = MaterialTheme.colorScheme.onSurface.copy(0.3f))
+            IconButton(onClick = onLongClick, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.MoreVert, "Details", Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(0.4f))
+            }
         }
     )
     HorizontalDivider(
@@ -389,3 +677,6 @@ private fun fileTypeColor(type: FileType) = when (type) {
     FileType.APK -> androidx.compose.ui.graphics.Color(0xFF4CAF50)
     FileType.OTHER -> androidx.compose.ui.graphics.Color(0xFF607D8B)
 }
+
+private fun formatDetailDate(ms: Long): String =
+    SimpleDateFormat("MMM dd, yyyy  HH:mm", Locale.getDefault()).format(Date(ms))

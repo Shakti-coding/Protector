@@ -3,6 +3,7 @@ package com.filevault.pro.presentation.screen.audioplayer
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
+import android.os.CountDownTimer
 import androidx.compose.foundation.background
 import androidx.core.content.FileProvider
 import androidx.compose.foundation.clickable
@@ -58,6 +59,28 @@ fun AudioPlayerScreen(
     var showSpeedMenu by remember { mutableStateOf(false) }
     var showSleepTimer by remember { mutableStateOf(false) }
     var sleepTimerMinutes by remember { mutableIntStateOf(0) }
+    var sleepTimerSecondsLeft by remember { mutableIntStateOf(0) }
+    var sleepTimerActive by remember { mutableStateOf(false) }
+
+    val controllerRef = remember { mutableStateOf<MediaController?>(null) }
+
+    DisposableEffect(sleepTimerActive) {
+        var timer: CountDownTimer? = null
+        if (sleepTimerActive && sleepTimerSecondsLeft > 0) {
+            timer = object : CountDownTimer(sleepTimerSecondsLeft.toLong() * 1000L, 1000L) {
+                override fun onTick(millisUntilFinished: Long) {
+                    sleepTimerSecondsLeft = (millisUntilFinished / 1000).toInt()
+                }
+                override fun onFinish() {
+                    controllerRef.value?.pause()
+                    sleepTimerActive = false
+                    sleepTimerMinutes = 0
+                    sleepTimerSecondsLeft = 0
+                }
+            }.start()
+        }
+        onDispose { timer?.cancel() }
+    }
 
     val hasPrev = MediaQueue.hasPrev()
     val hasNext = MediaQueue.hasNext()
@@ -71,13 +94,15 @@ fun AudioPlayerScreen(
         )
         val future = MediaController.Builder(context, sessionToken).buildAsync()
         future.addListener({
-            controller = future.get().apply {
+            val ctrl = future.get().apply {
                 val uri = if (currentPlayPath.startsWith("content://")) Uri.parse(currentPlayPath)
                           else Uri.fromFile(File(currentPlayPath))
                 setMediaItem(MediaItem.fromUri(uri))
                 prepare()
                 playWhenReady = true
             }
+            controller = ctrl
+            controllerRef.value = ctrl
         }, MoreExecutors.directExecutor())
     }
 
@@ -123,6 +148,7 @@ fun AudioPlayerScreen(
     DisposableEffect(Unit) {
         onDispose {
             controller?.release()
+            controllerRef.value = null
         }
     }
 
@@ -356,7 +382,15 @@ fun AudioPlayerScreen(
                     controller?.seekTo(newPos)
                     currentPosition = newPos
                 }
-                SmallControl(Icons.Default.Snooze, "Sleep") { showSleepTimer = true }
+                SmallControl(
+                    Icons.Default.Snooze,
+                    if (sleepTimerActive) {
+                        val m = sleepTimerSecondsLeft / 60
+                        val s = sleepTimerSecondsLeft % 60
+                        "%d:%02d".format(m, s)
+                    } else "Sleep",
+                    tintOverride = if (sleepTimerActive) Color(0xFF7C4DFF) else null
+                ) { showSleepTimer = true }
                 SmallControl(Icons.Default.Share, "Share") {
                     runCatching {
                         val contentUri = FileProvider.getUriForFile(
@@ -455,13 +489,26 @@ fun AudioPlayerScreen(
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { showSleepTimer = false }) { Text("Set") }
+                    TextButton(onClick = {
+                        if (sleepTimerMinutes > 0) {
+                            sleepTimerSecondsLeft = sleepTimerMinutes * 60
+                            sleepTimerActive = true
+                        } else {
+                            sleepTimerActive = false
+                            sleepTimerSecondsLeft = 0
+                        }
+                        showSleepTimer = false
+                    }) { Text("Set") }
                 },
                 dismissButton = {
                     TextButton(onClick = {
-                        sleepTimerMinutes = 0
+                        if (sleepTimerActive) {
+                            sleepTimerActive = false
+                            sleepTimerSecondsLeft = 0
+                            sleepTimerMinutes = 0
+                        }
                         showSleepTimer = false
-                    }) { Text("Cancel") }
+                    }) { Text(if (sleepTimerActive) "Cancel Timer" else "Cancel") }
                 }
             )
         }
@@ -472,6 +519,7 @@ fun AudioPlayerScreen(
 private fun SmallControl(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
+    tintOverride: Color? = null,
     onClick: () -> Unit
 ) {
     Column(
@@ -485,7 +533,7 @@ private fun SmallControl(
                 .background(Color.White.copy(0.1f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, label, tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(icon, label, tint = tintOverride ?: Color.White, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.height(4.dp))
         Text(label, color = Color.White.copy(0.5f), fontSize = 10.sp)

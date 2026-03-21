@@ -1,15 +1,18 @@
 package com.filevault.pro.presentation.screen.sync
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import com.filevault.pro.data.sync.SyncManifestManager
 import com.filevault.pro.domain.model.SyncHistory
 import com.filevault.pro.domain.model.SyncProfile
 import com.filevault.pro.domain.model.SyncType
@@ -17,8 +20,10 @@ import com.filevault.pro.domain.repository.SyncRepository
 import com.filevault.pro.worker.SyncWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
@@ -27,8 +32,32 @@ import javax.inject.Inject
 @HiltViewModel
 class SyncViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val syncRepository: SyncRepository
+    private val syncRepository: SyncRepository,
+    private val manifestManager: SyncManifestManager
 ) : ViewModel() {
+
+    private val _manifestSummary = MutableStateFlow(manifestManager.manifestSummary())
+    val manifestSummary: StateFlow<String> = _manifestSummary.asStateFlow()
+
+    fun refreshManifestSummary() {
+        _manifestSummary.value = manifestManager.manifestSummary()
+    }
+
+    fun exportManifest(uri: Uri, onResult: (Boolean) -> Unit) = viewModelScope.launch {
+        val ok = manifestManager.exportManifest(uri)
+        onResult(ok)
+    }
+
+    fun importManifest(uri: Uri, onResult: (Int) -> Unit) = viewModelScope.launch {
+        val count = manifestManager.importManifest(uri)
+        refreshManifestSummary()
+        onResult(count)
+    }
+
+    fun clearManifest() {
+        manifestManager.clearManifest()
+        refreshManifestSummary()
+    }
 
     val profiles: StateFlow<List<SyncProfile>> = syncRepository.getAllProfiles()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -58,6 +87,7 @@ class SyncViewModel @Inject constructor(
     fun syncNow(profileId: Long) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setInputData(workDataOf(SyncWorker.KEY_PROFILE_ID to profileId))
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .addTag("manual_sync_$profileId")
             .build()
         WorkManager.getInstance(context).enqueue(request)

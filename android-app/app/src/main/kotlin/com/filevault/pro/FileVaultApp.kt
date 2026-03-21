@@ -4,7 +4,9 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.database.CursorWindow
 import android.os.Build
+import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import androidx.work.Constraints
@@ -36,10 +38,21 @@ class FileVaultApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        increaseCursorWindowSize()
         CrashLogStore.install(this)
         NotificationStore.repository = notificationRepository
         createNotificationChannels()
         scheduleScanWorker()
+    }
+
+    private fun increaseCursorWindowSize() {
+        try {
+            val field = CursorWindow::class.java.getDeclaredField("sCursorWindowSize")
+            field.isAccessible = true
+            field.set(null, 100 * 1024 * 1024)
+        } catch (e: Exception) {
+            Log.w("FileVaultApp", "Could not increase cursor window size: ${e.message}")
+        }
     }
 
     private fun createNotificationChannels() {
@@ -53,6 +66,22 @@ class FileVaultApp : Application(), Configuration.Provider {
                 ).apply {
                     description = "Background file scanning service notifications"
                     setShowBadge(false)
+                },
+                NotificationChannel(
+                    ScanWorker.CHANNEL_ID,
+                    "Scan Progress",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Ongoing scan progress notification"
+                    setShowBadge(false)
+                },
+                NotificationChannel(
+                    ScanWorker.COMPLETION_CHANNEL_ID,
+                    "Scan Complete",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "Notifies when each scheduled scan finishes"
+                    setShowBadge(true)
                 },
                 NotificationChannel(
                     "sync_channel",

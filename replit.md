@@ -14,11 +14,24 @@ FileVault Pro is an Android file management and cataloging app paired with a pnp
 
 ### Media Viewers & Players (new)
 - **ImageViewerScreen** — Pinch-to-zoom (up to 5x), pan, double-tap zoom, rotate 90°, fit-to-screen, share, file info panel
-- **AudioPlayerScreen** — Full player: seek bar, play/pause, skip ±10s, repeat/shuffle, playback speed (0.5x–2x), sleep timer; background playback via MediaPlaybackService (screen can be off)
+- **AudioPlayerScreen** — Full player: seek bar, play/pause, skip ±10s, repeat/shuffle, playback speed (0.5x–2x), sleep timer (uses `CountDownTimer` in `DisposableEffect` so it works with screen off); background playback via MediaPlaybackService
 - **VideoPlayerScreen** — Seek bar, skip ±10s, playback speed, lock controls, fit/fill aspect ratio, volume slider; background playback via MediaPlaybackService
 - **UniversalFileViewerScreen** — Text/log/md with line numbers + search, JSON with syntax highlighting, binary files (PDF/Office/Archive/APK) show metadata + "Open With"; font size adjustable; word wrap toggle
-- **FolderBrowserScreen (updated)** — Now navigates inside folders showing files AND sub-folders; files display type badges, icons and size; tapping a file routes to the correct viewer automatically
+- **FolderBrowserScreen (updated)** — Now navigates inside folders showing files AND sub-folders; files display type badges, icons and size; tapping a file routes to the correct viewer automatically; search bar always visible; long-press shows detail sheet with location, share, copy path
 - **MediaPlaybackService** — Media3 `MediaSessionService` with `mediaPlayback` foreground service type, wake lock, audio focus management; keeps audio/video running with screen off
+
+### Thumbnails
+- **Photos** — `ThumbnailUtils.loadPhotoThumbnail()` uses `BitmapFactory` with `inSampleSize` downscaling to 128×128; shown in FilesScreen, PhotosScreen
+- **Videos** — `ThumbnailUtils.createVideoThumbnail()` (API 29+) or `MediaMetadataRetriever.frameAtTime`
+- **Audio** — Album art via `MediaMetadataRetriever.embeddedPicture` if present
+- **PDF** — First page rendered via `PdfRenderer` at 128px width
+- **APK** — App icon extracted via `PackageManager.getPackageArchiveInfo()`
+
+### Bug Fixes (March 2026)
+- **CursorWindow crash** (IllegalStateException at row 1147+) — Fixed in `FileVaultApp.onCreate()` by increasing cursor window size to 100MB via reflection on `CursorWindow.sCursorWindowSize` before the database is opened
+- **Sleep timer stops with screen off** — Fixed in `AudioPlayerScreen` by replacing `LaunchedEffect` countdown with `android.os.CountDownTimer` inside `DisposableEffect`; CountDownTimer posts to the main looper which remains active as long as the process is alive (kept alive by MediaPlaybackService foreground service)
+- **Sync doesn't run immediately on "Sync Now"** — Fixed in `SyncViewModel.syncNow()` by adding `setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)` to the OneTimeWorkRequest
+- **Scan completion notifications not visible** — Fixed by adding a dedicated `scan_complete_channel` with `IMPORTANCE_DEFAULT` in `FileVaultApp` and routing `postCompletionNotification()` in `ScanWorker` to that channel instead of the low-importance scan progress channel
 
 ### Critical Android 15 (API 35) Compatibility Notes
 - `MANAGE_EXTERNAL_STORAGE` must be granted via Settings > Apps > All Files Access — the app checks `Environment.isExternalStorageManager()` at runtime in `performFileSystemWalk()` and will return 0 files with a log warning if not granted

@@ -38,6 +38,7 @@ class ScanWorker @AssistedInject constructor(
         private const val NOTIFICATION_ID = 2001
         private const val COMPLETION_NOTIFICATION_ID = 2002
         const val CHANNEL_ID = "scan_worker_channel"
+        const val COMPLETION_CHANNEL_ID = "scan_complete_channel"
     }
 
     override suspend fun getForegroundInfo(): ForegroundInfo = buildForegroundInfo("Preparing scan…")
@@ -77,8 +78,21 @@ class ScanWorker @AssistedInject constructor(
     private fun postCompletionNotification(totalCount: Int) {
         ensureChannel()
         val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (nm.getNotificationChannel(COMPLETION_CHANNEL_ID) == null) {
+                nm.createNotificationChannel(
+                    NotificationChannel(
+                        COMPLETION_CHANNEL_ID, "Scan Complete",
+                        NotificationManager.IMPORTANCE_DEFAULT
+                    ).apply {
+                        description = "Notifies when each scheduled scan finishes"
+                        setShowBadge(true)
+                    }
+                )
+            }
+        }
         val text = "Cataloged $totalCount files from your device storage"
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(applicationContext, COMPLETION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("Scan Complete — FileVault Pro")
             .setContentText(text)

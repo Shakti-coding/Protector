@@ -102,41 +102,44 @@ class FileRepositoryImpl @Inject constructor(
 
     override fun getFolders(): Flow<List<FolderInfo>> =
         fileEntryDao.getFoldersWithCounts().map { rows ->
-            rows.distinctBy { it.folderPath }.map { row ->
-                FolderInfo(
-                    path = row.folderPath,
-                    name = row.folderName,
-                    fileCount = row.fileCount,
-                    totalSizeBytes = row.totalSize,
-                    lastModified = 0L
-                )
-            }
+            rows.filter { !it.folderPath.isNullOrBlank() }
+                .distinctBy { it.folderPath }.map { row ->
+                    FolderInfo(
+                        path = row.folderPath!!,
+                        name = row.folderName ?: row.folderPath!!.substringAfterLast("/"),
+                        fileCount = row.fileCount,
+                        totalSizeBytes = row.totalSize ?: 0L,
+                        lastModified = 0L
+                    )
+                }
         }
 
     override fun getFoldersWithCounts(): Flow<List<FolderInfo>> =
         fileEntryDao.getFoldersWithCounts().map { rows ->
-            rows.distinctBy { it.folderPath }.map { row ->
-                FolderInfo(
-                    path = row.folderPath,
-                    name = row.folderName,
-                    fileCount = row.fileCount,
-                    totalSizeBytes = row.totalSize,
-                    lastModified = 0L
-                )
-            }
+            rows.filter { !it.folderPath.isNullOrBlank() }
+                .distinctBy { it.folderPath }.map { row ->
+                    FolderInfo(
+                        path = row.folderPath!!,
+                        name = row.folderName ?: row.folderPath!!.substringAfterLast("/"),
+                        fileCount = row.fileCount,
+                        totalSizeBytes = row.totalSize ?: 0L,
+                        lastModified = 0L
+                    )
+                }
         }
 
     override fun getFoldersWithCountsByType(fileType: String): Flow<List<FolderInfo>> =
         fileEntryDao.getFoldersWithCountsByType(fileType).map { rows ->
-            rows.distinctBy { it.folderPath }.map { row ->
-                FolderInfo(
-                    path = row.folderPath,
-                    name = row.folderName,
-                    fileCount = row.fileCount,
-                    totalSizeBytes = row.totalSize,
-                    lastModified = 0L
-                )
-            }
+            rows.filter { !it.folderPath.isNullOrBlank() }
+                .distinctBy { it.folderPath }.map { row ->
+                    FolderInfo(
+                        path = row.folderPath!!,
+                        name = row.folderName ?: row.folderPath!!.substringAfterLast("/"),
+                        fileCount = row.fileCount,
+                        totalSizeBytes = row.totalSize ?: 0L,
+                        lastModified = 0L
+                    )
+                }
         }
 
     override suspend fun upsertFile(file: FileEntry) = fileEntryDao.upsert(file.toEntity())

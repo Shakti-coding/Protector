@@ -160,18 +160,18 @@ interface FileEntryDao {
 }
 
 data class FolderRow(
-    @ColumnInfo(name = "folder_path") val folderPath: String,
-    @ColumnInfo(name = "folder_name") val folderName: String
+    @ColumnInfo(name = "folder_path") val folderPath: String?,
+    @ColumnInfo(name = "folder_name") val folderName: String?
 )
 
 data class HashCount(
-    @ColumnInfo(name = "content_hash") val contentHash: String,
+    @ColumnInfo(name = "content_hash") val contentHash: String?,
     val cnt: Int
 )
 
 data class FolderCountRow(
-    @ColumnInfo(name = "folder_path") val folderPath: String,
-    @ColumnInfo(name = "folder_name") val folderName: String,
+    @ColumnInfo(name = "folder_path") val folderPath: String?,
+    @ColumnInfo(name = "folder_name") val folderName: String?,
     @ColumnInfo(name = "fileCount") val fileCount: Int,
-    @ColumnInfo(name = "totalSize") val totalSize: Long
+    @ColumnInfo(name = "totalSize") val totalSize: Long?
 )
