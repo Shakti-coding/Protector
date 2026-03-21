@@ -184,6 +184,10 @@ fun ImageViewerScreen(
         ) {
             BottomControls(
                 file = currentFile,
+                onRotate = {
+                    val current = pageRotations[pagerState.currentPage] ?: 0f
+                    pageRotations[pagerState.currentPage] = (current + 90f) % 360f
+                },
                 onOpenExternal = {
                     val fileUri = FileProvider.getUriForFile(
                         context, "${context.packageName}.fileprovider", currentFile
@@ -202,11 +206,11 @@ fun ImageViewerScreen(
 @Composable
 private fun ZoomableImage(
     file: File,
+    externalRotation: Float = 0f,
     onTap: () -> Unit
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
-    var rotation by remember { mutableFloatStateOf(0f) }
 
     val minScale = 1f
     val maxScale = 5f
@@ -223,7 +227,7 @@ private fun ZoomableImage(
                     scaleY = scale,
                     translationX = offset.x,
                     translationY = offset.y,
-                    rotationZ = rotation
+                    rotationZ = externalRotation
                 )
                 .pointerInput(Unit) {
                     detectTransformGestures { _, pan, zoom, _ ->
@@ -252,10 +256,9 @@ private fun ZoomableImage(
         )
 
         if (scale > 1f) {
-            var showResetButton by remember { mutableStateOf(true) }
             Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = 72.dp, end = 8.dp)) {
                 SmallFloatingActionButton(
-                    onClick = { scale = 1f; offset = Offset.Zero; rotation = 0f },
+                    onClick = { scale = 1f; offset = Offset.Zero },
                     containerColor = Color.Black.copy(0.55f),
                     contentColor = Color.White,
                     modifier = Modifier.size(36.dp)
@@ -270,6 +273,7 @@ private fun ZoomableImage(
 @Composable
 private fun BottomControls(
     file: File,
+    onRotate: () -> Unit,
     onOpenExternal: () -> Unit
 ) {
     var showInfo by remember { mutableStateOf(false) }
@@ -287,7 +291,7 @@ private fun BottomControls(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            ControlButton(icon = Icons.Default.RotateRight, label = "Rotate") {}
+            ControlButton(icon = Icons.Default.RotateRight, label = "Rotate") { onRotate() }
             ControlButton(icon = Icons.Default.Info, label = "Info") { showInfo = !showInfo }
             ControlButton(icon = Icons.Default.OpenInNew, label = "Open") { onOpenExternal() }
         }

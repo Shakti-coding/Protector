@@ -191,17 +191,17 @@ class RecoveryViewModel @Inject constructor(
 
         phase("Scanning MediaStore trash…", 0.05f)
         found.addAll(scanMediaTrash(ctx, catalogedPaths))
-        progress(0.33f, found)
+        progress(0.15f, found)
 
-        phase("Scanning LOST.DIR…", 0.33f)
+        phase("Scanning LOST.DIR…", 0.15f)
         found.addAll(scanLostDir(catalogedPaths) { path ->
             _uiState.update { it.copy(currentPath = path) }
         })
-        progress(0.66f, found)
+        progress(0.25f, found)
 
-        phase("Scanning hidden files…", 0.66f)
-        found.addAll(scanHiddenFiles(catalogedPaths) { path ->
-            _uiState.update { it.copy(currentPath = path) }
+        phase("Scanning all storage files…", 0.25f)
+        found.addAll(scanAllAccessibleFiles(catalogedPaths) { path, prog ->
+            _uiState.update { it.copy(currentPath = path, progress = 0.25f + prog * 0.75f) }
         })
 
         _uiState.update {
@@ -536,7 +536,7 @@ class RecoveryViewModel @Inject constructor(
         runCatching {
             storageRoot.walkTopDown()
                 .filter { it.isFile && it.name.startsWith(".") && it.length() > 0 }
-                .take(200)
+                .take(500)
                 .forEach { f ->
                     onPath(f.absolutePath)
                     if (f.absolutePath !in catalogedPaths) {
@@ -557,6 +557,56 @@ class RecoveryViewModel @Inject constructor(
                 }
         }
         return result
+    }
+
+    private suspend fun scanAllAccessibleFiles(
+        catalogedPaths: Set<String>,
+        onProgress: suspend (path: String, progress: Float) -> Unit = { _, _ -> }
+    ): List<RecoveredFile> = withContext(Dispatchers.IO) {
+        val result = mutableListOf<RecoveredFile>()
+        val storageRoot = Environment.getExternalStorageDirectory()
+        val alreadyAdded = mutableSetOf<String>()
+        runCatching {
+            val allFiles = storageRoot.walkTopDown()
+                .filter { it.isFile && it.length() > 0 }
+                .toList()
+            val total = allFiles.size.coerceAtLeast(1)
+            allFiles.forEachIndexed { i, f ->
+                if (!isActive) return@forEachIndexed
+                val absPath = f.absolutePath
+                if (absPath !in catalogedPaths && absPath !in alreadyAdded) {
+                    alreadyAdded.add(absPath)
+                    val isHidden = f.name.startsWith(".")
+                    val probability = when {
+                        isHidden -> 50
+                        absPath.contains("LOST.DIR") || absPath.contains("lost+found") -> 70
+                        else -> 85
+                    }
+                    val source = when {
+                        isHidden -> "Hidden Files"
+                        absPath.contains("LOST.DIR") -> "LOST.DIR"
+                        else -> "Storage Scan"
+                    }
+                    result.add(
+                        RecoveredFile(
+                            id = "scan_${absPath.hashCode()}",
+                            path = absPath,
+                            name = if (isHidden) f.name.removePrefix(".") else f.name,
+                            sizeBytes = f.length(),
+                            mimeType = guessMime(f.name),
+                            fileType = guessType(f.name),
+                            recoveryProbability = probability,
+                            lastModified = f.lastModified(),
+                            source = source
+                        )
+                    )
+                }
+                if (i % 100 == 0) {
+                    onProgress(absPath, i.toFloat() / total)
+                }
+            }
+        }.onFailure { Log.w(TAG, "scanAllAccessibleFiles failed: ${it.message}") }
+        result
     }
 
     fun filteredFiles(): List<RecoveredFile> {

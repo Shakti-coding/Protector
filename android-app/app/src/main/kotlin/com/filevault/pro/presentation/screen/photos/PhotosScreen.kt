@@ -1,6 +1,8 @@
 package com.filevault.pro.presentation.screen.photos
 
 import android.content.Intent
+import android.os.Environment
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -132,6 +134,33 @@ fun PhotosScreen(
         }
     }
 
+    fun saveToDownloads() {
+        scope.launch(Dispatchers.IO) {
+            isBusy = true
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            var copied = 0
+            selectedPaths.forEach { path ->
+                val src = File(path)
+                if (src.exists()) {
+                    var dest = File(downloadsDir, src.name)
+                    var counter = 1
+                    while (dest.exists()) {
+                        dest = File(downloadsDir, "${src.nameWithoutExtension}($counter).${src.extension}")
+                        counter++
+                    }
+                    runCatching { src.copyTo(dest, overwrite = false) }
+                    copied++
+                }
+            }
+            val count = copied
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "$count file(s) saved to Downloads", Toast.LENGTH_SHORT).show()
+                selectedPaths = emptySet()
+                isBusy = false
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             Column {
@@ -188,6 +217,7 @@ fun PhotosScreen(
                     onShare = ::shareSelected,
                     onZip = ::zipAndShare,
                     onSaveToFolder = { folderPickerLauncher.launch(null) },
+                    onSaveToDownloads = ::saveToDownloads,
                     onDeleteFromApp = { showDeleteConfirm = true },
                     onClearSelection = { selectedPaths = emptySet() }
                 )
@@ -290,6 +320,7 @@ fun MultiSelectActionBar(
     onShare: () -> Unit,
     onZip: () -> Unit,
     onSaveToFolder: () -> Unit,
+    onSaveToDownloads: (() -> Unit)? = null,
     onDeleteFromApp: () -> Unit,
     onClearSelection: () -> Unit
 ) {
@@ -311,6 +342,11 @@ fun MultiSelectActionBar(
         }
         IconButton(onClick = onSaveToFolder) {
             Icon(Icons.Default.SaveAlt, "Save to Folder", tint = MaterialTheme.colorScheme.primary)
+        }
+        if (onSaveToDownloads != null) {
+            IconButton(onClick = onSaveToDownloads) {
+                Icon(Icons.Default.FileDownload, "Save to Downloads", tint = MaterialTheme.colorScheme.primary)
+            }
         }
         Spacer(Modifier.weight(1f))
         IconButton(onClick = onDeleteFromApp) {

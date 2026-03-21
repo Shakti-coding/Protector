@@ -26,6 +26,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -61,6 +64,7 @@ fun AudioPlayerScreen(
     var sleepTimerMinutes by remember { mutableIntStateOf(0) }
     var sleepTimerSecondsLeft by remember { mutableIntStateOf(0) }
     var sleepTimerActive by remember { mutableStateOf(false) }
+    var showInfo by remember { mutableStateOf(false) }
 
     val controllerRef = remember { mutableStateOf<MediaController?>(null) }
 
@@ -368,7 +372,7 @@ fun AudioPlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 32.dp),
+                    .padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -391,6 +395,7 @@ fun AudioPlayerScreen(
                     } else "Sleep",
                     tintOverride = if (sleepTimerActive) Color(0xFF7C4DFF) else null
                 ) { showSleepTimer = true }
+                SmallControl(Icons.Default.Info, "Info") { showInfo = true }
                 SmallControl(Icons.Default.Share, "Share") {
                     runCatching {
                         val contentUri = FileProvider.getUriForFile(
@@ -512,6 +517,53 @@ fun AudioPlayerScreen(
                 }
             )
         }
+
+        if (showInfo) {
+            AlertDialog(
+                onDismissRequest = { showInfo = false },
+                title = { Text("File Info", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        val dateStr = remember(currentFile) {
+                            SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+                                .format(Date(currentFile.lastModified()))
+                        }
+                        AudioInfoRow("Name", currentFile.name)
+                        AudioInfoRow("Size", FileUtils.formatSize(currentFile.length()))
+                        AudioInfoRow("Duration", FileUtils.formatDuration(duration))
+                        AudioInfoRow("Path", currentFile.parent ?: "")
+                        AudioInfoRow("Modified", dateStr)
+                        AudioInfoRow("Format", currentFile.extension.uppercase().ifEmpty { "Unknown" })
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showInfo = false }) { Text("Close") }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AudioInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(0.5f),
+            modifier = Modifier.width(70.dp)
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

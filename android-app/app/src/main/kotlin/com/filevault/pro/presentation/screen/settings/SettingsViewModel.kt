@@ -55,6 +55,9 @@ class SettingsViewModel @Inject constructor(
     val scanIntervalMinutes: StateFlow<Int> = appPreferences.scanIntervalMinutes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 15)
 
+    val lockTimeoutMinutes: StateFlow<Int> = appPreferences.lockTimeoutMinutes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 2)
+
     val lastScanAt: StateFlow<Long?> = appPreferences.lastScanAt
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -77,6 +80,10 @@ class SettingsViewModel @Inject constructor(
     fun setScanIntervalMinutes(minutes: Int) = viewModelScope.launch {
         appPreferences.setScanIntervalMinutes(minutes)
         reschedulePeriodic(minutes)
+    }
+
+    fun setLockTimeoutMinutes(minutes: Int) = viewModelScope.launch {
+        appPreferences.setLockTimeoutMinutes(minutes)
     }
 
     fun cycleTheme() = viewModelScope.launch {

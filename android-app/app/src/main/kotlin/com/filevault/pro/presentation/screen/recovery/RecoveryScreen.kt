@@ -2,6 +2,8 @@ package com.filevault.pro.presentation.screen.recovery
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -147,6 +149,34 @@ fun RecoveryScreen(
         }
     }
 
+    fun saveToDownloads() {
+        scope.launch(Dispatchers.IO) {
+            isBusy = true
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            var copied = 0
+            selectedIds.forEach { id ->
+                val rf = displayedFiles.find { it.id == id } ?: return@forEach
+                val src = File(rf.path)
+                if (src.exists()) {
+                    var dest = File(downloadsDir, src.name)
+                    var counter = 1
+                    while (dest.exists()) {
+                        dest = File(downloadsDir, "${src.nameWithoutExtension}($counter).${src.extension}")
+                        counter++
+                    }
+                    runCatching { src.copyTo(dest, overwrite = false) }
+                    copied++
+                }
+            }
+            val count = copied
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "$count file(s) saved to Downloads", Toast.LENGTH_SHORT).show()
+                selectedIds = emptySet()
+                isBusy = false
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             Column {
@@ -261,6 +291,7 @@ fun RecoveryScreen(
                     onShare = ::shareSelected,
                     onZip = ::zipAndShare,
                     onSaveToFolder = { recoveryFolderLauncher.launch(null) },
+                    onSaveToDownloads = ::saveToDownloads,
                     onDeleteFromApp = { showDeleteConfirm = true },
                     onClearSelection = { selectedIds = emptySet() }
                 )

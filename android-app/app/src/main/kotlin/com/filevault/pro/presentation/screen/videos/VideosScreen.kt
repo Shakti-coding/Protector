@@ -1,6 +1,8 @@
 package com.filevault.pro.presentation.screen.videos
 
 import android.content.Intent
+import android.os.Environment
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -130,6 +132,33 @@ fun VideosScreen(
         }
     }
 
+    fun saveToDownloads() {
+        scope.launch(Dispatchers.IO) {
+            isBusy = true
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            var copied = 0
+            selectedPaths.forEach { path ->
+                val src = File(path)
+                if (src.exists()) {
+                    var dest = File(downloadsDir, src.name)
+                    var counter = 1
+                    while (dest.exists()) {
+                        dest = File(downloadsDir, "${src.nameWithoutExtension}($counter).${src.extension}")
+                        counter++
+                    }
+                    runCatching { src.copyTo(dest, overwrite = false) }
+                    copied++
+                }
+            }
+            val count = copied
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "$count file(s) saved to Downloads", Toast.LENGTH_SHORT).show()
+                selectedPaths = emptySet()
+                isBusy = false
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             Column {
@@ -170,6 +199,7 @@ fun VideosScreen(
                     onShare = ::shareSelected,
                     onZip = ::zipAndShare,
                     onSaveToFolder = { folderPickerLauncher.launch(null) },
+                    onSaveToDownloads = ::saveToDownloads,
                     onDeleteFromApp = { showDeleteConfirm = true },
                     onClearSelection = { selectedPaths = emptySet() }
                 )

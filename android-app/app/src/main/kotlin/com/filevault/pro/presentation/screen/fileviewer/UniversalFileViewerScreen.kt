@@ -91,6 +91,7 @@ fun UniversalFileViewerScreen(
     var searchQuery by remember { mutableStateOf("") }
     var showUnzipProgress by remember { mutableStateOf(false) }
     var unzipMessage by remember { mutableStateOf("") }
+    var showFileInfo by remember { mutableStateOf(false) }
 
     val unzipLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
@@ -181,6 +182,9 @@ fun UniversalFileViewerScreen(
                             }) {
                                 Icon(Icons.Default.ContentCopy, "Copy content")
                             }
+                        }
+                        IconButton(onClick = { showFileInfo = !showFileInfo }) {
+                            Icon(Icons.Default.Info, "File Info")
                         }
                         IconButton(onClick = {
                             val fileUri = FileProvider.getUriForFile(
@@ -352,6 +356,55 @@ fun UniversalFileViewerScreen(
                 }
             }
         }
+    }
+
+    if (showFileInfo) {
+        AlertDialog(
+            onDismissRequest = { showFileInfo = false },
+            title = { Text("File Info", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    val dateStr = remember(file) {
+                        java.text.SimpleDateFormat("MMM dd, yyyy HH:mm", java.util.Locale.getDefault())
+                            .format(java.util.Date(file.lastModified()))
+                    }
+                    InfoRow("Name", file.name)
+                    InfoRow("Size", FileUtils.formatSize(file.length()))
+                    InfoRow("Path", file.parent ?: "")
+                    InfoRow("Modified", dateStr)
+                    InfoRow("Type", file.extension.uppercase().ifEmpty { "Unknown" })
+                    if (state.mode == ViewerMode.PDF && state.pdfPageCount > 0)
+                        InfoRow("Pages", state.pdfPageCount.toString())
+                    if (state.mode == ViewerMode.TEXT || state.mode == ViewerMode.JSON)
+                        InfoRow("Lines", state.lines.size.toString())
+                    if (state.mode == ViewerMode.ARCHIVE_INFO)
+                        InfoRow("Entries", state.zipEntries.size.toString())
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showFileInfo = false }) { Text("Close") }
+            },
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(0.5f),
+            modifier = Modifier.width(80.dp)
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

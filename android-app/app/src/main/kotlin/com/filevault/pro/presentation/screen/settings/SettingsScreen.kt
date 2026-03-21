@@ -39,12 +39,14 @@ fun SettingsScreen(
     val showHidden by viewModel.showHiddenFiles.collectAsState()
     val appLockEnabled by viewModel.appLockEnabled.collectAsState()
     val scanInterval by viewModel.scanIntervalMinutes.collectAsState()
+    val lockTimeout by viewModel.lockTimeoutMinutes.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     var showExportDialog by remember { mutableStateOf(false) }
     var showIntervalDialog by remember { mutableStateOf(false) }
+    var showLockTimeoutDialog by remember { mutableStateOf(false) }
 
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -166,6 +168,19 @@ fun SettingsScreen(
                     onClick = onNavigateToAppLock
                 )
             }
+            item {
+                val lockTimeoutLabel = when (lockTimeout) {
+                    0 -> "Lock immediately when backgrounded"
+                    1 -> "After 1 minute of inactivity"
+                    else -> "After $lockTimeout minutes of inactivity"
+                }
+                SettingsItem(
+                    icon = Icons.Default.Timer,
+                    title = "Auto-Lock Timeout",
+                    subtitle = lockTimeoutLabel,
+                    onClick = { showLockTimeoutDialog = true }
+                )
+            }
 
             item { SettingsGroup("Diagnostic") }
             item {
@@ -283,6 +298,47 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showIntervalDialog = false }) { Text("Close") }
+            },
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showLockTimeoutDialog) {
+        val options = listOf(0, 1, 2, 5, 10, 15, 30)
+        AlertDialog(
+            onDismissRequest = { showLockTimeoutDialog = false },
+            title = { Text("Auto-Lock Timeout", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Lock the app after this period of inactivity. Set to 0 to lock immediately when backgrounded.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(0.6f))
+                    Spacer(Modifier.height(12.dp))
+                    options.forEach { minutes ->
+                        val label = when (minutes) {
+                            0 -> "Immediately (when backgrounded)"
+                            1 -> "1 minute"
+                            else -> "$minutes minutes"
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = lockTimeout == minutes,
+                                onClick = {
+                                    viewModel.setLockTimeoutMinutes(minutes)
+                                    showLockTimeoutDialog = false
+                                }
+                            )
+                            Text(label, modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLockTimeoutDialog = false }) { Text("Close") }
             },
             shape = RoundedCornerShape(16.dp)
         )
