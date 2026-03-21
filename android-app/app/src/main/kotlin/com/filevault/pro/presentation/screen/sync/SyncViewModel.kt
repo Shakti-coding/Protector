@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
@@ -84,7 +85,13 @@ class SyncViewModel @Inject constructor(
         onDone(id)
     }
 
+    /**
+     * Enqueue a one-time sync using a UNIQUE work name so that we always replace
+     * any previous run. This prevents stale FAILED/SUCCEEDED states from previous
+     * runs being visible in [getSyncWorkInfo].
+     */
     fun syncNow(profileId: Long) {
+        val uniqueWorkName = "manual_sync_once_$profileId"
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setInputData(workDataOf(
                 SyncWorker.KEY_PROFILE_ID to profileId,
@@ -93,14 +100,25 @@ class SyncViewModel @Inject constructor(
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .addTag("manual_sync_$profileId")
             .build()
-        WorkManager.getInstance(context).enqueue(request)
+
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            uniqueWorkName,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
     }
 
+    /**
+     * Observes the unique one-time sync work so we only see the latest run state,
+     * not accumulated stale states from multiple past enqueues.
+     */
     fun getSyncWorkInfo(profileId: Long) =
-        WorkManager.getInstance(context).getWorkInfosByTagFlow("manual_sync_$profileId")
+        WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWorkFlow("manual_sync_once_$profileId")
 
     fun cancelSyncWorker(profileId: Long) {
         WorkManager.getInstance(context).cancelUniqueWork("sync_profile_$profileId")
+        WorkManager.getInstance(context).cancelUniqueWork("manual_sync_once_$profileId")
     }
 
     private fun scheduleSyncWorker(profile: SyncProfile) {

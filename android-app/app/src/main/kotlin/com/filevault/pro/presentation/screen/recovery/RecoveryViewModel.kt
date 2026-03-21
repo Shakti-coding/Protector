@@ -80,7 +80,7 @@ class RecoveryViewModel @Inject constructor(
 
     private val binderListener = Shizuku.OnBinderReceivedListener { refreshShizukuStatus() }
     private val binderDeadListener = Shizuku.OnBinderDeadListener { refreshShizukuStatus() }
-    private val permissionListener = Shizuku.OnRequestPermissionResultListener { code, result ->
+    private val permissionListener = Shizuku.OnRequestPermissionResultListener { code, _ ->
         if (code == SHIZUKU_CODE) refreshShizukuStatus()
     }
 
@@ -184,23 +184,52 @@ class RecoveryViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Queries MediaStore for ALL currently accessible image and video paths.
+     * These are files already shown in Photos/Videos tabs and must NOT appear in Restore.
+     */
+    private fun getCurrentMediaStorePaths(ctx: Context): Set<String> {
+        val paths = mutableSetOf<String>()
+
+        val imageUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        val videoUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(MediaStore.MediaColumns.DATA)
+
+        listOf(imageUri, videoUri).forEach { uri ->
+            runCatching {
+                ctx.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                    val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
+                    while (cursor.moveToNext()) {
+                        val p = cursor.getString(dataCol) ?: return@use
+                        if (p.isNotBlank()) paths.add(p)
+                    }
+                }
+            }.onFailure { Log.w(TAG, "MediaStore query failed for $uri: ${it.message}") }
+        }
+
+        return paths
+    }
+
     private suspend fun runQuickScan() = withContext(Dispatchers.IO) {
         val ctx = getApplication<Application>()
-        val catalogedPaths = fileEntryDao.getAllNonDeletedPaths().toHashSet()
+        val dbPaths = fileEntryDao.getAllNonDeletedPaths().toHashSet()
+        val mediaPaths = getCurrentMediaStorePaths(ctx)
+        val excludedPaths = dbPaths + mediaPaths
+
         val found = mutableListOf<RecoveredFile>()
 
         phase("Scanning MediaStore trash…", 0.05f)
-        found.addAll(scanMediaTrash(ctx, catalogedPaths))
+        found.addAll(scanMediaTrash(ctx, excludedPaths))
         progress(0.15f, found)
 
         phase("Scanning LOST.DIR…", 0.15f)
-        found.addAll(scanLostDir(catalogedPaths) { path ->
+        found.addAll(scanLostDir(excludedPaths) { path ->
             _uiState.update { it.copy(currentPath = path) }
         })
         progress(0.25f, found)
 
         phase("Scanning all storage files…", 0.25f)
-        found.addAll(scanAllAccessibleFiles(catalogedPaths) { path, prog ->
+        found.addAll(scanAllAccessibleFiles(excludedPaths) { path, prog ->
             _uiState.update { it.copy(currentPath = path, progress = 0.25f + prog * 0.75f) }
         })
 
@@ -226,21 +255,24 @@ class RecoveryViewModel @Inject constructor(
             return@withContext
         }
         val ctx = getApplication<Application>()
-        val catalogedPaths = fileEntryDao.getAllNonDeletedPaths().toHashSet()
+        val dbPaths = fileEntryDao.getAllNonDeletedPaths().toHashSet()
+        val mediaPaths = getCurrentMediaStorePaths(ctx)
+        val excludedPaths = dbPaths + mediaPaths
+
         val found = mutableListOf<RecoveredFile>()
 
         phase("Scanning MediaStore trash…", 0.02f)
-        found.addAll(scanMediaTrash(ctx, catalogedPaths))
+        found.addAll(scanMediaTrash(ctx, excludedPaths))
         progress(0.1f, found)
 
         phase("Scanning LOST.DIR…", 0.1f)
-        found.addAll(scanLostDir(catalogedPaths) { path ->
+        found.addAll(scanLostDir(excludedPaths) { path ->
             _uiState.update { it.copy(currentPath = path) }
         })
         progress(0.2f, found)
 
         phase("Scanning hidden files…", 0.2f)
-        found.addAll(scanHiddenFiles(catalogedPaths) { path ->
+        found.addAll(scanHiddenFiles(excludedPaths) { path ->
             _uiState.update { it.copy(currentPath = path) }
         })
         progress(0.3f, found)
@@ -252,7 +284,7 @@ class RecoveryViewModel @Inject constructor(
         if (blockDevices.isEmpty()) {
             phase("No readable block devices found — using file-level scan", 0.35f)
             delay(800)
-            found.addAll(scanExtendedFilesystem(catalogedPaths) { path, prog ->
+            found.addAll(scanExtendedFilesystem(excludedPaths) { path, prog ->
                 _uiState.update { it.copy(currentPath = path, progress = 0.35f + prog * 0.65f) }
             })
         } else {
@@ -261,11 +293,11 @@ class RecoveryViewModel @Inject constructor(
             val totalBlocks = blockDevices.sumOf { (_, size) -> ((size / CHUNK_SIZE) + 1).toInt() }
             _uiState.update { it.copy(totalBytes = totalSize, totalBlocks = totalBlocks) }
 
-            blockDevices.forEachIndexed { devIdx, (devPath, devSize) ->
+            blockDevices.forEachIndexed { _, (devPath, devSize) ->
                 if (!isActive) return@forEachIndexed
                 phase("Deep scanning: $devPath", 0.35f + (processedBytes.toFloat() / totalSize.coerceAtLeast(1)) * 0.65f)
                 found.addAll(
-                    scanBlockDeviceViaShizuku(devPath, devSize, catalogedPaths) { bytesRead, blocksRead ->
+                    scanBlockDeviceViaShizuku(devPath, devSize, excludedPaths) { bytesRead, blocksRead ->
                         processedBytes += bytesRead
                         val overallProg = 0.35f + (processedBytes.toFloat() / totalSize.coerceAtLeast(1)) * 0.65f
                         _uiState.update {
@@ -345,7 +377,7 @@ class RecoveryViewModel @Inject constructor(
     private suspend fun scanBlockDeviceViaShizuku(
         devPath: String,
         devSize: Long,
-        catalogedPaths: Set<String>,
+        excludedPaths: Set<String>,
         onProgress: suspend (bytesRead: Long, blocksRead: Int) -> Unit
     ): List<RecoveredFile> = withContext(Dispatchers.IO) {
         val result = mutableListOf<RecoveredFile>()
@@ -360,7 +392,7 @@ class RecoveryViewModel @Inject constructor(
                 val data = proc.inputStream.readBytes()
                 proc.waitFor()
 
-                val carved = carveSignatures(data, devPath, chunkIdx, catalogedPaths)
+                val carved = carveSignatures(data, devPath, chunkIdx, excludedPaths)
                 result.addAll(carved)
                 onProgress(CHUNK_SIZE, 1)
                 delay(10)
@@ -373,7 +405,7 @@ class RecoveryViewModel @Inject constructor(
         data: ByteArray,
         devPath: String,
         chunkIdx: Int,
-        catalogedPaths: Set<String>
+        excludedPaths: Set<String>
     ): List<RecoveredFile> {
         val result = mutableListOf<RecoveredFile>()
         FILE_SIGNATURES.forEach { (sig, mime, ext) ->
@@ -409,7 +441,7 @@ class RecoveryViewModel @Inject constructor(
     }
 
     private suspend fun scanExtendedFilesystem(
-        catalogedPaths: Set<String>,
+        excludedPaths: Set<String>,
         onProgress: suspend (path: String, progress: Float) -> Unit
     ): List<RecoveredFile> = withContext(Dispatchers.IO) {
         val result = mutableListOf<RecoveredFile>()
@@ -419,10 +451,12 @@ class RecoveryViewModel @Inject constructor(
             proc?.waitFor()
             lines.forEachIndexed { i, path ->
                 if (!isActive) return@forEachIndexed
-                if (path !in catalogedPaths) {
+                if (isNoMediaOrBinary(path)) return@forEachIndexed
+                if (path !in excludedPaths) {
                     val f = File(path)
                     if (f.exists() && f.isFile) {
                         val mime = guessMime(f.name)
+                        if (mime == "application/octet-stream") return@forEachIndexed
                         result.add(
                             RecoveredFile(
                                 id = "ext_${path.hashCode()}",
@@ -444,7 +478,7 @@ class RecoveryViewModel @Inject constructor(
         result
     }
 
-    private fun scanMediaTrash(ctx: Context, catalogedPaths: Set<String>): List<RecoveredFile> {
+    private fun scanMediaTrash(ctx: Context, excludedPaths: Set<String>): List<RecoveredFile> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return emptyList()
         val result = mutableListOf<RecoveredFile>()
         val uri = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -471,11 +505,13 @@ class RecoveryViewModel @Inject constructor(
                 while (cursor.moveToNext()) {
                     val id = cursor.getLong(idCol)
                     val name = cursor.getString(nameCol) ?: continue
+                    if (isNoMediaOrBinary(name)) continue
                     val path = cursor.getString(dataCol)
                         ?: ContentUris.withAppendedId(uri, id).toString()
-                    if (path in catalogedPaths) continue
+                    if (path in excludedPaths) continue
                     val size = cursor.getLong(sizeCol)
                     val mime = cursor.getString(mimeCol) ?: "*/*"
+                    if (mime == "application/octet-stream" || mime == "*/*") continue
                     val modified = cursor.getLong(dateCol) * 1000L
                     result.add(
                         RecoveredFile(
@@ -497,7 +533,7 @@ class RecoveryViewModel @Inject constructor(
     }
 
     private fun scanLostDir(
-        catalogedPaths: Set<String>,
+        excludedPaths: Set<String>,
         onPath: (String) -> Unit = {}
     ): List<RecoveredFile> {
         val result = mutableListOf<RecoveredFile>()
@@ -506,14 +542,17 @@ class RecoveryViewModel @Inject constructor(
             if (dir.exists() && dir.isDirectory) {
                 dir.walkTopDown().filter { it.isFile }.forEach { f ->
                     onPath(f.absolutePath)
-                    if (f.absolutePath !in catalogedPaths) {
+                    if (isNoMediaOrBinary(f.name)) return@forEach
+                    val mime = guessMime(f.name)
+                    if (mime == "application/octet-stream") return@forEach
+                    if (f.absolutePath !in excludedPaths) {
                         result.add(
                             RecoveredFile(
                                 id = "lost_${f.absolutePath.hashCode()}",
                                 path = f.absolutePath,
                                 name = f.name,
                                 sizeBytes = f.length(),
-                                mimeType = guessMime(f.name),
+                                mimeType = mime,
                                 fileType = guessType(f.name),
                                 recoveryProbability = 70,
                                 lastModified = f.lastModified(),
@@ -528,7 +567,7 @@ class RecoveryViewModel @Inject constructor(
     }
 
     private fun scanHiddenFiles(
-        catalogedPaths: Set<String>,
+        excludedPaths: Set<String>,
         onPath: (String) -> Unit = {}
     ): List<RecoveredFile> {
         val result = mutableListOf<RecoveredFile>()
@@ -539,14 +578,17 @@ class RecoveryViewModel @Inject constructor(
                 .take(500)
                 .forEach { f ->
                     onPath(f.absolutePath)
-                    if (f.absolutePath !in catalogedPaths) {
+                    if (isNoMediaOrBinary(f.name)) return@forEach
+                    val mime = guessMime(f.name)
+                    if (mime == "application/octet-stream") return@forEach
+                    if (f.absolutePath !in excludedPaths) {
                         result.add(
                             RecoveredFile(
                                 id = "hidden_${f.absolutePath.hashCode()}",
                                 path = f.absolutePath,
                                 name = f.name.removePrefix("."),
                                 sizeBytes = f.length(),
-                                mimeType = guessMime(f.name),
+                                mimeType = mime,
                                 fileType = guessType(f.name),
                                 recoveryProbability = 50,
                                 lastModified = f.lastModified(),
@@ -560,7 +602,7 @@ class RecoveryViewModel @Inject constructor(
     }
 
     private suspend fun scanAllAccessibleFiles(
-        catalogedPaths: Set<String>,
+        excludedPaths: Set<String>,
         onProgress: suspend (path: String, progress: Float) -> Unit = { _, _ -> }
     ): List<RecoveredFile> = withContext(Dispatchers.IO) {
         val knownExtensions = setOf(
@@ -577,13 +619,14 @@ class RecoveryViewModel @Inject constructor(
         runCatching {
             val allFiles = storageRoot.walkTopDown()
                 .filter { it.isFile && it.length() > 0 &&
+                    !isNoMediaOrBinary(it.name) &&
                     it.extension.lowercase() in knownExtensions }
                 .toList()
             val total = allFiles.size.coerceAtLeast(1)
             allFiles.forEachIndexed { i, f ->
                 if (!isActive) return@forEachIndexed
                 val absPath = f.absolutePath
-                if (absPath !in catalogedPaths && absPath !in alreadyAdded) {
+                if (absPath !in excludedPaths && absPath !in alreadyAdded) {
                     alreadyAdded.add(absPath)
                     val isHidden = f.name.startsWith(".")
                     val probability = when {
@@ -618,9 +661,21 @@ class RecoveryViewModel @Inject constructor(
         result
     }
 
+    /**
+     * Returns true if a filename is a .nomedia marker or a binary file with no recognized extension.
+     */
+    private fun isNoMediaOrBinary(name: String): Boolean {
+        val stripped = name.removePrefix(".")
+        if (stripped.equals("nomedia", ignoreCase = true)) return true
+        if (name.equals(".nomedia", ignoreCase = true)) return true
+        return false
+    }
+
     fun filteredFiles(): List<RecoveredFile> {
         val state = _uiState.value
         return state.foundFiles.filter { f ->
+            if (isNoMediaOrBinary(f.name)) return@filter false
+            if (f.mimeType == "application/octet-stream" && f.source != "Deep Scan") return@filter false
             (state.filterType == RecoveryFileType.ALL || f.fileType == state.filterType) &&
             (state.searchQuery.isBlank() || f.name.contains(state.searchQuery, ignoreCase = true))
         }

@@ -77,7 +77,7 @@ class SyncWorker @AssistedInject constructor(
         val alreadySynced = manifestManager.getSyncedPaths()
         val files = allFiles.filter { it.path !in alreadySynced }
         val total = files.size
-        Log.d(TAG, "Files to sync: $total (${allFiles.size - total} skipped by manifest dedup)")
+        Log.d(TAG, "Files to sync: $total (unsynced=${allFiles.size}, manifest-skipped=${allFiles.size - total}, scope=${profile.fileTypeScope})")
 
         if (total == 0) {
             syncRepository.updateHistoryCompletion(historyId, System.currentTimeMillis(), 0, 0, SyncStatus.SUCCESS, null)
