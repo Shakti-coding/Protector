@@ -38,8 +38,10 @@ import com.filevault.pro.presentation.screen.videos.VideosScreen
 import com.filevault.pro.presentation.screen.videoplayer.VideoPlayerScreen
 import com.filevault.pro.presentation.screen.crashlog.CrashLogScreen
 import com.filevault.pro.presentation.screen.diagnostic.DiagnosticScreen
+import com.filevault.pro.presentation.screen.lock.AppLockSetupScreen
 import com.filevault.pro.presentation.screen.notifications.NotificationCenterScreen
 import com.filevault.pro.presentation.screen.recovery.RecoveryScreen
+import com.filevault.pro.data.preferences.AppPreferences
 import java.net.URLEncoder
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector? = null) {
@@ -78,6 +80,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object CrashLog : Screen("crash_log", "Crash Logs")
     object Diagnostic : Screen("diagnostic", "Storage Diagnostic")
     object Recovery : Screen("recovery", "Recovery", Icons.Default.Restore)
+    object AppLockSetup : Screen("app_lock_setup", "App Lock")
 }
 
 val bottomNavItems = listOf(Screen.Dashboard, Screen.Photos, Screen.Videos, Screen.Files, Screen.Recovery, Screen.Settings)
@@ -99,7 +102,7 @@ fun openFileRouteByPath(path: String): String {
 }
 
 @Composable
-fun AppNavGraph() {
+fun AppNavGraph(appPreferences: AppPreferences? = null) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -247,8 +250,17 @@ fun AppNavGraph() {
                     onNavigateToFolders       = { navController.navigate(Screen.Folders.route) },
                     onNavigateToNotifications = { navController.navigate(Screen.Notifications.route) },
                     onNavigateToCrashLog      = { navController.navigate(Screen.CrashLog.route) },
-                    onNavigateToDiagnostic    = { navController.navigate(Screen.Diagnostic.route) }
+                    onNavigateToDiagnostic    = { navController.navigate(Screen.Diagnostic.route) },
+                    onNavigateToAppLock       = { navController.navigate(Screen.AppLockSetup.route) }
                 )
+            }
+            composable(Screen.AppLockSetup.route) {
+                if (appPreferences != null) {
+                    AppLockSetupScreen(
+                        appPreferences = appPreferences,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
             }
             composable(Screen.Folders.route) {
                 FolderBrowserScreen(

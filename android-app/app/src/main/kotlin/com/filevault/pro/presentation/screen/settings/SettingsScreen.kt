@@ -31,7 +31,8 @@ fun SettingsScreen(
     onNavigateToFolders: () -> Unit,
     onNavigateToNotifications: () -> Unit = {},
     onNavigateToCrashLog: () -> Unit = {},
-    onNavigateToDiagnostic: () -> Unit = {}
+    onNavigateToDiagnostic: () -> Unit = {},
+    onNavigateToAppLock: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val themeMode by viewModel.themeMode.collectAsState()
@@ -158,12 +159,11 @@ fun SettingsScreen(
 
             item { SettingsGroup("Security") }
             item {
-                SettingsSwitchItem(
-                    icon = Icons.Default.Lock,
+                SettingsItem(
+                    icon = if (appLockEnabled) Icons.Default.Lock else Icons.Default.LockOpen,
                     title = "App Lock",
-                    subtitle = "Require PIN or biometric to open",
-                    checked = appLockEnabled,
-                    onCheckedChange = viewModel::setAppLockEnabled
+                    subtitle = if (appLockEnabled) "Enabled — tap to manage PIN & biometric" else "Disabled — tap to set up a PIN",
+                    onClick = onNavigateToAppLock
                 )
             }
 

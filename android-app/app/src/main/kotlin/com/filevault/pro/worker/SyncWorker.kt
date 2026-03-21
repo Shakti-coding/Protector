@@ -44,6 +44,7 @@ class SyncWorker @AssistedInject constructor(
     companion object {
         private const val TAG = "SyncWorker"
         const val KEY_PROFILE_ID = "profile_id"
+        const val KEY_FORCE_SYNC = "force_sync"
         const val KEY_PROGRESS_SYNCED = "progress_synced"
         const val KEY_PROGRESS_TOTAL = "progress_total"
         private const val CHANNEL_ID = "sync_channel"
@@ -57,7 +58,8 @@ class SyncWorker @AssistedInject constructor(
         if (profileId == -1L) return Result.failure()
 
         val profile = syncRepository.getProfileById(profileId) ?: return Result.failure()
-        if (!profile.isActive) return Result.success()
+        val forceSync = inputData.getBoolean(KEY_FORCE_SYNC, false)
+        if (!profile.isActive && !forceSync) return Result.success()
 
         setForeground(buildForegroundInfo("Starting sync: ${profile.name}", 0, 0))
         Log.d(TAG, "Starting sync for profile: ${profile.name}")

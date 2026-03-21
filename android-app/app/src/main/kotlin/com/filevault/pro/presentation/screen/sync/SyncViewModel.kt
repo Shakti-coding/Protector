@@ -86,12 +86,18 @@ class SyncViewModel @Inject constructor(
 
     fun syncNow(profileId: Long) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
-            .setInputData(workDataOf(SyncWorker.KEY_PROFILE_ID to profileId))
+            .setInputData(workDataOf(
+                SyncWorker.KEY_PROFILE_ID to profileId,
+                SyncWorker.KEY_FORCE_SYNC to true
+            ))
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .addTag("manual_sync_$profileId")
             .build()
         WorkManager.getInstance(context).enqueue(request)
     }
+
+    fun getSyncWorkInfo(profileId: Long) =
+        WorkManager.getInstance(context).getWorkInfosByTagLiveData("manual_sync_$profileId")
 
     fun cancelSyncWorker(profileId: Long) {
         WorkManager.getInstance(context).cancelUniqueWork("sync_profile_$profileId")

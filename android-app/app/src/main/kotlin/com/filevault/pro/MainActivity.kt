@@ -57,7 +57,7 @@ class MainActivity : ComponentActivity() {
                         onUnlocked = { isUnlocked = true }
                     )
                 } else {
-                    AppNavGraph()
+                    AppNavGraph(appPreferences = appPreferences)
                 }
             }
         }
