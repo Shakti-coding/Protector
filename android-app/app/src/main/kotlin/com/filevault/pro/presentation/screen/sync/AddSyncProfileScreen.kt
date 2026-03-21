@@ -304,20 +304,52 @@ fun AddSyncProfileScreen(
                                 SyncType.TELEGRAM -> {
                                     if (botToken.isBlank()) return@withContext Pair(false, "Bot token is empty")
                                     try {
-                                        val url = URL("https://api.telegram.org/bot$botToken/getMe")
-                                        val conn = url.openConnection() as HttpURLConnection
-                                        conn.connectTimeout = 8000
-                                        conn.readTimeout = 8000
-                                        conn.requestMethod = "GET"
-                                        val code = conn.responseCode
-                                        val body = conn.inputStream.bufferedReader().readText()
-                                        conn.disconnect()
+                                        val getMeUrl = URL("https://api.telegram.org/bot$botToken/getMe")
+                                        val getMeConn = getMeUrl.openConnection() as HttpURLConnection
+                                        getMeConn.connectTimeout = 8000
+                                        getMeConn.readTimeout = 8000
+                                        getMeConn.requestMethod = "GET"
+                                        val code = getMeConn.responseCode
+                                        val body = getMeConn.inputStream.bufferedReader().readText()
+                                        getMeConn.disconnect()
                                         if (code == 200 && body.contains("\"ok\":true")) {
                                             val nameMatch = Regex("\"first_name\":\"([^\"]+)\"").find(body)
-                                            val botName = nameMatch?.groupValues?.getOrNull(1) ?: "Unknown"
-                                            Pair(true, "Connected! Bot name: $botName")
+                                            val botName = nameMatch?.groupValues?.getOrNull(1) ?: "Bot"
+                                            val usernameMatch = Regex("\"username\":\"([^\"]+)\"").find(body)
+                                            val botUsername = usernameMatch?.groupValues?.getOrNull(1) ?: ""
+
+                                            if (chatId.isNotBlank()) {
+                                                try {
+                                                    val welcomeText = "👋 Hello from FileVault Pro!\n\n" +
+                                                        "✅ Connection successful!\n" +
+                                                        "🤖 Bot: $botName${if (botUsername.isNotBlank()) " (@$botUsername)" else ""}\n\n" +
+                                                        "Your files will be securely synced to this chat."
+                                                    val encoded = java.net.URLEncoder.encode(welcomeText, "UTF-8")
+                                                    val msgUrl = URL("https://api.telegram.org/bot$botToken/sendMessage?chat_id=${chatId.trim()}&text=$encoded")
+                                                    val msgConn = msgUrl.openConnection() as HttpURLConnection
+                                                    msgConn.connectTimeout = 8000
+                                                    msgConn.readTimeout = 8000
+                                                    msgConn.requestMethod = "GET"
+                                                    val msgCode = msgConn.responseCode
+                                                    val msgBody = msgConn.inputStream.bufferedReader().readText()
+                                                    msgConn.disconnect()
+                                                    if (msgCode == 200 && msgBody.contains("\"ok\":true")) {
+                                                        Pair(true, "✅ Connected to @$botUsername — Welcome message sent to your chat!")
+                                                    } else {
+                                                        val errMatch = Regex("\"description\":\"([^\"]+)\"").find(msgBody)
+                                                        val err = errMatch?.groupValues?.getOrNull(1) ?: "HTTP $msgCode"
+                                                        Pair(true, "✅ Bot connected ($botName) but couldn't send welcome message: $err\nCheck your Chat ID.")
+                                                    }
+                                                } catch (e: Exception) {
+                                                    Pair(true, "✅ Bot connected ($botName) but welcome message failed: ${e.message}")
+                                                }
+                                            } else {
+                                                Pair(true, "✅ Bot connected: $botName${if (botUsername.isNotBlank()) " (@$botUsername)" else ""}.\nEnter a Chat ID to test sending a welcome message.")
+                                            }
                                         } else {
-                                            Pair(false, "Invalid token (HTTP $code)")
+                                            val errMatch = Regex("\"description\":\"([^\"]+)\"").find(body)
+                                            val err = errMatch?.groupValues?.getOrNull(1) ?: "HTTP $code"
+                                            Pair(false, "Invalid token — $err")
                                         }
                                     } catch (e: Exception) {
                                         Pair(false, "Connection failed: ${e.message}")

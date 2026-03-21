@@ -61,7 +61,6 @@ class SyncWorker @AssistedInject constructor(
         val forceSync = inputData.getBoolean(KEY_FORCE_SYNC, false)
         if (!profile.isActive && !forceSync) return Result.success()
 
-        setForeground(buildForegroundInfo("Starting sync: ${profile.name}", 0, 0))
         Log.d(TAG, "Starting sync for profile: ${profile.name}")
 
         val historyId = syncRepository.insertHistory(
@@ -73,6 +72,10 @@ class SyncWorker @AssistedInject constructor(
             )
         )
 
+        runCatching {
+            setForeground(buildForegroundInfo("Starting sync: ${profile.name}", 0, 0))
+        }.onFailure { Log.w(TAG, "setForeground failed (non-fatal): ${it.message}") }
+
         val allFiles = fileRepository.getUnsyncedFiles(profile.fileTypeScope)
         val alreadySynced = manifestManager.getSyncedPaths()
         val files = allFiles.filter { it.path !in alreadySynced }
@@ -82,7 +85,7 @@ class SyncWorker @AssistedInject constructor(
         if (total == 0) {
             syncRepository.updateHistoryCompletion(historyId, System.currentTimeMillis(), 0, 0, SyncStatus.SUCCESS, null)
             syncRepository.updateLastSyncAt(profileId, System.currentTimeMillis())
-            setForeground(buildForegroundInfo("Sync complete — nothing new to send", 0, 0))
+            runCatching { setForeground(buildForegroundInfo("Sync complete — nothing new to send", 0, 0)) }
             return Result.success()
         }
 
@@ -101,10 +104,9 @@ class SyncWorker @AssistedInject constructor(
                     }
 
                     for ((index, file) in files.withIndex()) {
-                        setForeground(buildForegroundInfo(
-                            "Syncing ${file.name}",
-                            index + 1, total
-                        ))
+                        runCatching {
+                            setForeground(buildForegroundInfo("Syncing ${file.name}", index + 1, total))
+                        }
                         setProgress(workDataOf(
                             KEY_PROGRESS_SYNCED to (index + 1),
                             KEY_PROGRESS_TOTAL to total
@@ -140,7 +142,9 @@ class SyncWorker @AssistedInject constructor(
                         subjectTemplate = profile.emailSubjectTemplate ?: "[FileVault] Sync {date}"
                     )
 
-                    setForeground(buildForegroundInfo("Sending ${files.size} files via email…", 0, total))
+                    runCatching {
+                        setForeground(buildForegroundInfo("Sending ${files.size} files via email…", 0, total))
+                    }
 
                     val result = emailSync.sendFiles(config, files)
                     synced = result.sentCount
@@ -169,7 +173,7 @@ class SyncWorker @AssistedInject constructor(
             syncRepository.updateLastSyncAt(profileId, System.currentTimeMillis())
 
             val summary = "✓ $synced synced${if (failed > 0) ", $failed failed" else ""}"
-            setForeground(buildForegroundInfo(summary, total, total))
+            runCatching { setForeground(buildForegroundInfo(summary, total, total)) }
             Log.d(TAG, "Sync complete: $synced synced, $failed failed")
             return Result.success()
 
