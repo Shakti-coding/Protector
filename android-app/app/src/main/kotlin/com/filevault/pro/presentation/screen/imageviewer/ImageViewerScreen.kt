@@ -59,6 +59,8 @@ fun ImageViewerScreen(
     val pagerState = rememberPagerState(initialPage = startIndex) { allPaths.size }
     var showControls by remember { mutableStateOf(true) }
 
+    val scope = rememberCoroutineScope()
+
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
             state = pagerState,
@@ -135,11 +137,10 @@ fun ImageViewerScreen(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp)
         ) {
-            val scope = rememberCoroutineScope()
             IconButton(
                 onClick = {
                     if (pagerState.currentPage > 0) {
-                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        scope.launch {
                             pagerState.animateScrollToPage(pagerState.currentPage - 1)
                         }
                     }
@@ -160,7 +161,7 @@ fun ImageViewerScreen(
             IconButton(
                 onClick = {
                     if (pagerState.currentPage < allPaths.size - 1) {
-                        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        scope.launch {
                             pagerState.animateScrollToPage(pagerState.currentPage + 1)
                         }
                     }
