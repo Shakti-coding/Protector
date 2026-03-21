@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,7 +19,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,6 +37,8 @@ import com.filevault.pro.domain.model.FileType
 import com.filevault.pro.domain.model.FolderInfo
 import com.filevault.pro.domain.repository.FileRepository
 import com.filevault.pro.util.FileUtils
+import com.filevault.pro.util.MediaQueue
+import com.filevault.pro.util.rememberFileThumbnail
 import com.filevault.pro.util.simpleScrollbar
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -339,7 +345,19 @@ fun FolderBrowserScreen(
                                     is BrowseItem.FileItem -> {
                                         FileItemRow(
                                             file = item.entry,
-                                            onClick = { onFileClick(item.entry.path) },
+                                            onClick = {
+                                                val entry = item.entry
+                                                if (entry.fileType == FileType.PHOTO) {
+                                                    val photoPaths = items
+                                                        .filterIsInstance<BrowseItem.FileItem>()
+                                                        .filter { it.entry.fileType == FileType.PHOTO }
+                                                        .map { it.entry.path }
+                                                    MediaQueue.set(entry.path, photoPaths)
+                                                } else {
+                                                    MediaQueue.set(entry.path, listOf(entry.path))
+                                                }
+                                                onFileClick(entry.path)
+                                            },
                                             onLongClick = { selectedFile = item.entry }
                                         )
                                     }
@@ -606,6 +624,11 @@ private fun FolderItemRow(folder: FolderInfo, onClick: () -> Unit, onLongClick: 
 
 @Composable
 private fun FileItemRow(file: FileEntry, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val context = LocalContext.current
+    val thumbnail = rememberFileThumbnail(file, context)
+    val hasThumbnail = thumbnail != null &&
+            (file.fileType == FileType.PHOTO || file.fileType == FileType.VIDEO)
+
     ListItem(
         modifier = Modifier.clickable(onClick = onClick),
         headlineContent = {
@@ -634,15 +657,52 @@ private fun FileItemRow(file: FileEntry, onClick: () -> Unit, onLongClick: () ->
         },
         leadingContent = {
             Box(
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(6.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    fileTypeIcon(file.fileType),
-                    null,
-                    tint = fileTypeColor(file.fileType),
-                    modifier = Modifier.size(28.dp)
-                )
+                if (hasThumbnail) {
+                    Image(
+                        bitmap = thumbnail!!.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                    if (file.fileType == FileType.VIDEO) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = androidx.compose.ui.graphics.Color.Black.copy(0.45f)
+                            ) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    null,
+                                    Modifier.size(18.dp).padding(2.dp),
+                                    tint = androidx.compose.ui.graphics.Color.White
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = fileTypeColor(file.fileType).copy(0.15f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Icon(
+                                fileTypeIcon(file.fileType),
+                                null,
+                                tint = fileTypeColor(file.fileType),
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                }
             }
         },
         trailingContent = {

@@ -563,12 +563,21 @@ class RecoveryViewModel @Inject constructor(
         catalogedPaths: Set<String>,
         onProgress: suspend (path: String, progress: Float) -> Unit = { _, _ -> }
     ): List<RecoveredFile> = withContext(Dispatchers.IO) {
+        val knownExtensions = setOf(
+            "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tiff", "raw", "cr2", "nef",
+            "mp4", "mkv", "avi", "mov", "wmv", "flv", "3gp", "webm", "ts", "m4v",
+            "mp3", "wav", "flac", "aac", "ogg", "m4a", "opus", "wma",
+            "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "rtf", "epub",
+            "zip", "rar", "7z", "tar", "gz", "bz2",
+            "apk", "json", "xml", "html", "htm", "log", "md"
+        )
         val result = mutableListOf<RecoveredFile>()
         val storageRoot = Environment.getExternalStorageDirectory()
         val alreadyAdded = mutableSetOf<String>()
         runCatching {
             val allFiles = storageRoot.walkTopDown()
-                .filter { it.isFile && it.length() > 0 }
+                .filter { it.isFile && it.length() > 0 &&
+                    it.extension.lowercase() in knownExtensions }
                 .toList()
             val total = allFiles.size.coerceAtLeast(1)
             allFiles.forEachIndexed { i, f ->
