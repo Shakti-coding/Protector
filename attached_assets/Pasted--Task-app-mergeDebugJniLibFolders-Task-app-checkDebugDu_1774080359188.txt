@@ -1,0 +1,34 @@
+> Task :app:mergeDebugJniLibFolders
+> Task :app:checkDebugDuplicateClasses
+> Task :app:mergeDebugNativeLibs
+> Task :app:mergeExtDexDebug FROM-CACHE
+> Task :app:mergeLibDexDebug FROM-CACHE
+
+> Task :app:stripDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libandroidx.graphics.path.so, libdatastore_shared_counter.so.
+
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :app:kspDebugKotlin
+e: file:///home/runner/work/Protector/Protector/android-app/app/src/main/kotlin/com/filevault/pro/presentation/screen/imageviewer/ImageViewerScreen.kt:142:56 Unresolved reference 'launch'.
+
+> Task :app:compileDebugKotlin FAILED
+e: file:///home/runner/work/Protector/Protector/android-app/app/src/main/kotlin/com/filevault/pro/presentation/screen/imageviewer/ImageViewerScreen.kt:143:40 Suspend function 'suspend fun animateScrollToPage(page: Int, pageOffsetFraction: Float = ..., animationSpec: AnimationSpec<Float> = ...): Unit' should be called only from a coroutine or another suspend function.
+e: file:///home/runner/work/Protector/Protector/android-app/app/src/main/kotlin/com/filevault/pro/presentation/screen/imageviewer/ImageViewerScreen.kt:163:56 Unresolved reference 'launch'.
+e: file:///home/runner/work/Protector/Protector/android-app/app/src/main/kotlin/com/filevault/pro/presentation/screen/imageviewer/ImageViewerScreen.kt:164:40 Suspend function 'suspend fun animateScrollToPage(page: Int, pageOffsetFraction: Float = ..., animationSpec: AnimationSpec<Float> = ...): Unit' should be called only from a coroutine or another suspend function.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+* Exception is:
+org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:compileDebugKotlin'.

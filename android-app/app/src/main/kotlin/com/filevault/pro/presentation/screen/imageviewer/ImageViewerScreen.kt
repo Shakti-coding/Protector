@@ -35,6 +35,7 @@ import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.filevault.pro.util.FileUtils
 import com.filevault.pro.util.MediaQueue
+import kotlinx.coroutines.launch
 import java.io.File
 import java.net.URLDecoder
 import java.text.SimpleDateFormat
