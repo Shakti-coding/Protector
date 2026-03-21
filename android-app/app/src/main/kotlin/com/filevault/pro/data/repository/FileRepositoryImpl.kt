@@ -162,8 +162,9 @@ class FileRepositoryImpl @Inject constructor(
     override suspend fun getDuplicates(): List<DuplicateGroup> {
         val hashCounts = fileEntryDao.getDuplicateHashes()
         return hashCounts.mapNotNull { hc ->
-            val files = fileEntryDao.getFilesByHash(hc.contentHash).map { it.toDomain() }
-            if (files.size > 1) DuplicateGroup(hc.contentHash, files.first().sizeBytes, files)
+            val hash = hc.contentHash ?: return@mapNotNull null
+            val files = fileEntryDao.getFilesByHash(hash).map { it.toDomain() }
+            if (files.size > 1) DuplicateGroup(hash, files.first().sizeBytes, files)
             else null
         }
     }
