@@ -159,6 +159,10 @@ class FileRepositoryImpl @Inject constructor(
         if (types.isEmpty()) fileEntryDao.getUnsyncedFiles().map { it.toDomain() }
         else fileEntryDao.getUnsyncedFilesByType(types.map { it.name }).map { it.toDomain() }
 
+    override suspend fun getAllSyncableFiles(types: List<FileType>): List<FileEntry> =
+        if (types.isEmpty()) fileEntryDao.getAllSyncableFiles().map { it.toDomain() }
+        else fileEntryDao.getAllSyncableFilesByType(types.map { it.name }).map { it.toDomain() }
+
     override suspend fun getDuplicates(): List<DuplicateGroup> {
         val hashCounts = fileEntryDao.getDuplicateHashes()
         return hashCounts.mapNotNull { hc ->

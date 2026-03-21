@@ -9,7 +9,6 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
@@ -92,12 +91,15 @@ class SyncViewModel @Inject constructor(
      */
     fun syncNow(profileId: Long) {
         val uniqueWorkName = "manual_sync_once_$profileId"
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setInputData(workDataOf(
                 SyncWorker.KEY_PROFILE_ID to profileId,
                 SyncWorker.KEY_FORCE_SYNC to true
             ))
-            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .setConstraints(constraints)
             .addTag("manual_sync_$profileId")
             .build()
 

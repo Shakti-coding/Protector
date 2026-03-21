@@ -20,6 +20,7 @@ interface FileRepository {
     suspend fun markSynced(paths: List<String>, syncedAt: Long)
     suspend fun setSyncIgnored(path: String, ignored: Boolean)
     suspend fun getUnsyncedFiles(types: List<FileType> = emptyList()): List<FileEntry>
+    suspend fun getAllSyncableFiles(types: List<FileType> = emptyList()): List<FileEntry>
     suspend fun getDuplicates(): List<DuplicateGroup>
     suspend fun performMediaStoreScan(): Int
     suspend fun performFileSystemWalk(onProgress: suspend (folder: String, count: Int) -> Unit): Int

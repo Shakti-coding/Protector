@@ -58,8 +58,10 @@ class SyncManifestManager @Inject constructor(
         }
     }
 
+    @Synchronized
     fun getSyncedPaths(): Set<String> = loadManifest().map { it.path }.toSet()
 
+    @Synchronized
     fun addEntries(entries: List<ManifestEntry>) {
         val current = loadManifest().associateBy { it.path }.toMutableMap()
         entries.forEach { current[it.path] = it }

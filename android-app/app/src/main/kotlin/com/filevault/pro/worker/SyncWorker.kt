@@ -51,48 +51,111 @@ class SyncWorker @AssistedInject constructor(
         private const val NOTIF_ID = 3001
     }
 
-    override suspend fun getForegroundInfo(): ForegroundInfo = buildForegroundInfo("Syncing files…", 0, 0)
-
     override suspend fun doWork(): Result {
-        val profileId = inputData.getLong(KEY_PROFILE_ID, -1)
-        if (profileId == -1L) return Result.failure()
+        val profileId = inputData.getLong(KEY_PROFILE_ID, -1L)
 
-        val profile = syncRepository.getProfileById(profileId) ?: return Result.failure()
+        // ── Outer safety net: catches ANY pre-history failure and records it ──
+        if (profileId == -1L) {
+            Log.e(TAG, "doWork called with no profile_id in input data")
+            return Result.failure(workDataOf("error" to "No profile_id in work data"))
+        }
+
+        val profile = try {
+            syncRepository.getProfileById(profileId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception loading profile $profileId: ${e.message}", e)
+            // Write a failure history even if profile load crashes
+            runCatching {
+                syncRepository.insertHistory(
+                    SyncHistory(
+                        profileId = profileId,
+                        profileName = "Profile #$profileId",
+                        startedAt = System.currentTimeMillis(),
+                        status = SyncStatus.FAILED,
+                        completedAt = System.currentTimeMillis(),
+                        errorMessage = "Failed to load profile: ${e.message}"
+                    )
+                )
+            }
+            return Result.failure()
+        }
+
+        if (profile == null) {
+            Log.e(TAG, "Profile $profileId not found in database")
+            runCatching {
+                syncRepository.insertHistory(
+                    SyncHistory(
+                        profileId = profileId,
+                        profileName = "Profile #$profileId",
+                        startedAt = System.currentTimeMillis(),
+                        status = SyncStatus.FAILED,
+                        completedAt = System.currentTimeMillis(),
+                        errorMessage = "Profile not found in database (id=$profileId)"
+                    )
+                )
+            }
+            return Result.failure()
+        }
+
         val forceSync = inputData.getBoolean(KEY_FORCE_SYNC, false)
-        if (!profile.isActive && !forceSync) return Result.success()
+        if (!profile.isActive && !forceSync) {
+            Log.d(TAG, "Profile ${profile.name} is inactive and forceSync=false — skipping")
+            return Result.success()
+        }
 
-        Log.d(TAG, "Starting sync for profile: ${profile.name}")
-
-        val historyId = syncRepository.insertHistory(
-            SyncHistory(
-                profileId = profile.id,
-                profileName = profile.name,
-                startedAt = System.currentTimeMillis(),
-                status = SyncStatus.IN_PROGRESS
+        // ── History entry created HERE — guaranteed to run before any sync logic ──
+        val historyId = try {
+            syncRepository.insertHistory(
+                SyncHistory(
+                    profileId = profile.id,
+                    profileName = profile.name,
+                    startedAt = System.currentTimeMillis(),
+                    status = SyncStatus.IN_PROGRESS
+                )
             )
-        )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to insert history record: ${e.message}", e)
+            return Result.failure()
+        }
 
-        runCatching {
-            setForeground(buildForegroundInfo("Starting sync: ${profile.name}", 0, 0))
-        }.onFailure { Log.w(TAG, "setForeground failed (non-fatal): ${it.message}") }
+        Log.d(TAG, "Starting sync for profile: ${profile.name} (id=$profileId, historyId=$historyId)")
+        runCatching { setForeground(buildForegroundInfo("Starting: ${profile.name}", 0, 0)) }
+            .onFailure { Log.w(TAG, "setForeground (start) failed non-fatally: ${it.message}") }
 
-        val allFiles = fileRepository.getUnsyncedFiles(profile.fileTypeScope)
-        val alreadySynced = manifestManager.getSyncedPaths()
+        // ── File discovery: use ALL syncable files, manifest is the sole dedup guard ──
+        val allFiles = try {
+            fileRepository.getAllSyncableFiles(profile.fileTypeScope)
+        } catch (e: Exception) {
+            Log.e(TAG, "File query failed: ${e.message}", e)
+            syncRepository.updateHistoryCompletion(
+                historyId, System.currentTimeMillis(), 0, 0,
+                SyncStatus.FAILED, "File query error: ${e.message}"
+            )
+            return Result.failure()
+        }
+
+        val alreadySynced: Set<String> = manifestManager.getSyncedPaths()
         val files = allFiles.filter { it.path !in alreadySynced }
         val total = files.size
-        Log.d(TAG, "Files to sync: $total (unsynced=${allFiles.size}, manifest-skipped=${allFiles.size - total}, scope=${profile.fileTypeScope})")
+
+        Log.d(TAG, "Files scope=${profile.fileTypeScope.map{it.name}}, total=${allFiles.size}, " +
+                "already-in-manifest=${alreadySynced.size}, to-send=$total")
 
         if (total == 0) {
-            syncRepository.updateHistoryCompletion(historyId, System.currentTimeMillis(), 0, 0, SyncStatus.SUCCESS, null)
+            val msg = if (allFiles.isEmpty()) "No files found for selected types"
+                      else "All ${allFiles.size} file(s) already synced (manifest)"
+            Log.d(TAG, msg)
+            syncRepository.updateHistoryCompletion(
+                historyId, System.currentTimeMillis(), 0, 0, SyncStatus.SUCCESS, null
+            )
             syncRepository.updateLastSyncAt(profileId, System.currentTimeMillis())
-            runCatching { setForeground(buildForegroundInfo("Sync complete — nothing new to send", 0, 0)) }
+            runCatching { setForeground(buildForegroundInfo("Nothing new to send", 0, 0)) }
             return Result.success()
         }
 
         var synced = 0
         var failed = 0
         var lastError: String? = null
-        val newManifestEntries = mutableListOf<ManifestEntry>()
 
         try {
             when (profile.type) {
@@ -100,29 +163,50 @@ class SyncWorker @AssistedInject constructor(
                     val botToken = profile.telegramBotTokenKey?.let { encryptedPrefs.get(it) }
                     val chatId = profile.telegramChatId
                     if (botToken.isNullOrBlank() || chatId.isNullOrBlank()) {
-                        throw IllegalStateException("Telegram credentials not configured")
+                        throw IllegalStateException(
+                            "Telegram credentials missing — bot token or chat ID not set"
+                        )
                     }
 
                     for ((index, file) in files.withIndex()) {
+                        // ── Stop point: honour WorkManager cancellation ──
+                        if (isStopped) {
+                            Log.d(TAG, "Worker stopped by system at file $index/$total")
+                            break
+                        }
+
                         runCatching {
-                            setForeground(buildForegroundInfo("Syncing ${file.name}", index + 1, total))
+                            setForeground(buildForegroundInfo(
+                                "Sending ${index + 1}/$total: ${file.name}", index + 1, total
+                            ))
                         }
                         setProgress(workDataOf(
                             KEY_PROGRESS_SYNCED to (index + 1),
                             KEY_PROGRESS_TOTAL to total
                         ))
 
-                        val result = telegramSync.sendFile(botToken, chatId, file, profile.telegramCaptionTemplate)
+                        val result = telegramSync.sendFile(
+                            botToken, chatId, file, profile.telegramCaptionTemplate
+                        )
+
                         if (result.success) {
+                            // ── Write manifest immediately — safe against mid-run crashes ──
+                            runCatching {
+                                manifestManager.addEntries(
+                                    listOf(file.toManifestEntry(profile, SyncType.TELEGRAM))
+                                )
+                            }
                             fileRepository.markSynced(listOf(file.path), System.currentTimeMillis())
-                            newManifestEntries.add(file.toManifestEntry(profile, SyncType.TELEGRAM))
                             synced++
+                            Log.d(TAG, "✓ Sent ${file.name} ($synced/$total)")
                         } else {
                             failed++
                             lastError = result.error
-                            Log.w(TAG, "Failed to sync ${file.name}: ${result.error}")
+                            Log.w(TAG, "✗ Failed ${file.name}: ${result.error}")
                         }
-                        delay(500)
+
+                        // Telegram rate-limit guard
+                        delay(600)
                     }
                 }
 
@@ -130,7 +214,9 @@ class SyncWorker @AssistedInject constructor(
                     val password = profile.smtpPasswordKey?.let { encryptedPrefs.get(it) }
                     if (profile.smtpHost.isNullOrBlank() || profile.smtpUsername.isNullOrBlank() ||
                         password.isNullOrBlank() || profile.emailRecipient.isNullOrBlank()) {
-                        throw IllegalStateException("Email credentials not configured")
+                        throw IllegalStateException(
+                            "Email credentials missing — check SMTP host, username, password and recipient"
+                        )
                     }
 
                     val config = EmailSyncImpl.EmailConfig(
@@ -154,36 +240,39 @@ class SyncWorker @AssistedInject constructor(
                     if (result.success) {
                         val now = System.currentTimeMillis()
                         fileRepository.markSynced(files.map { it.path }, now)
-                        newManifestEntries.addAll(files.map { it.toManifestEntry(profile, SyncType.EMAIL) })
+                        runCatching {
+                            manifestManager.addEntries(
+                                files.map { it.toManifestEntry(profile, SyncType.EMAIL) }
+                            )
+                        }
                     }
                 }
             }
 
-            if (newManifestEntries.isNotEmpty()) {
-                manifestManager.addEntries(newManifestEntries)
-            }
-
             val finalStatus = when {
-                failed == 0 -> SyncStatus.SUCCESS
-                synced == 0 -> SyncStatus.FAILED
-                else -> SyncStatus.PARTIAL
+                failed == 0 && synced > 0 -> SyncStatus.SUCCESS
+                synced == 0 && failed > 0  -> SyncStatus.FAILED
+                synced > 0 && failed > 0   -> SyncStatus.PARTIAL
+                else                       -> SyncStatus.SUCCESS
             }
 
-            syncRepository.updateHistoryCompletion(historyId, System.currentTimeMillis(), synced, failed, finalStatus, lastError)
+            syncRepository.updateHistoryCompletion(
+                historyId, System.currentTimeMillis(), synced, failed, finalStatus, lastError
+            )
             syncRepository.updateLastSyncAt(profileId, System.currentTimeMillis())
 
-            val summary = "✓ $synced synced${if (failed > 0) ", $failed failed" else ""}"
+            val summary = "Done: $synced sent${if (failed > 0) ", $failed failed" else ""}"
             runCatching { setForeground(buildForegroundInfo(summary, total, total)) }
-            Log.d(TAG, "Sync complete: $synced synced, $failed failed")
+            Log.d(TAG, "Sync complete — $synced sent, $failed failed")
             return Result.success()
 
         } catch (e: Exception) {
-            Log.e(TAG, "Sync failed: ${e.message}", e)
-            if (newManifestEntries.isNotEmpty()) manifestManager.addEntries(newManifestEntries)
+            Log.e(TAG, "Sync failed with exception: ${e.message}", e)
+            val errMsg = e.message ?: e.javaClass.simpleName
             syncRepository.updateHistoryCompletion(
-                historyId, System.currentTimeMillis(), synced, failed, SyncStatus.FAILED, e.message
+                historyId, System.currentTimeMillis(), synced, failed, SyncStatus.FAILED, errMsg
             )
-            return if (runAttemptCount < 3) Result.retry() else Result.failure()
+            return if (runAttemptCount < 2) Result.retry() else Result.failure()
         }
     }
 

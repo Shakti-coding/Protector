@@ -156,6 +156,18 @@ interface FileEntryDao {
     """)
     suspend fun getUnsyncedFilesByType(types: List<String>): List<FileEntryEntity>
 
+    @Query("SELECT * FROM file_entries WHERE is_sync_ignored = 0 AND is_deleted_from_device = 0 ORDER BY last_modified ASC")
+    suspend fun getAllSyncableFiles(): List<FileEntryEntity>
+
+    @Query("""
+        SELECT * FROM file_entries
+        WHERE is_sync_ignored = 0
+        AND is_deleted_from_device = 0
+        AND file_type IN (:types)
+        ORDER BY last_modified ASC
+    """)
+    suspend fun getAllSyncableFilesByType(types: List<String>): List<FileEntryEntity>
+
     @Query("DELETE FROM file_entries WHERE path = :path")
     suspend fun deleteByPath(path: String)
 }
