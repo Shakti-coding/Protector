@@ -2,6 +2,9 @@ package com.filevault.pro.presentation.screen.sync
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.work.WorkInfo
 import com.filevault.pro.domain.model.SyncProfile
 import com.filevault.pro.domain.model.SyncType
 import java.text.SimpleDateFormat
@@ -40,6 +44,8 @@ fun SyncProfilesScreen(
     var deleteTarget by remember { mutableStateOf<SyncProfile?>(null) }
     var snackMessage by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
+
+    val syncingProfileIds = remember { mutableStateMapOf<Long, Boolean>() }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -115,11 +121,16 @@ fun SyncProfilesScreen(
                 items(profiles, key = { it.id }) { profile ->
                     SyncProfileCard(
                         profile = profile,
+                        viewModel = viewModel,
                         onEdit = { onEditProfile(profile.id) },
                         onDelete = { deleteTarget = profile },
                         onToggleActive = { viewModel.setProfileActive(profile.id, !profile.isActive) },
                         onViewHistory = { onViewHistory(profile.id) },
-                        onSyncNow = { viewModel.syncNow(profile.id) }
+                        onSyncNow = {
+                            syncingProfileIds[profile.id] = true
+                            viewModel.syncNow(profile.id)
+                            snackMessage = "Sync started for \"${profile.name}\""
+                        }
                     )
                 }
             }
@@ -220,19 +231,32 @@ private fun ManifestCard(
 @Composable
 private fun SyncProfileCard(
     profile: SyncProfile,
+    viewModel: SyncViewModel,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onToggleActive: () -> Unit,
     onViewHistory: () -> Unit,
     onSyncNow: () -> Unit
 ) {
+    val workInfoList by viewModel.getSyncWorkInfo(profile.id).collectAsState(emptyList())
+    val isRunning = workInfoList.any {
+        it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED
+    }
+    val lastWorkInfo = workInfoList.lastOrNull()
+    val progressSynced = lastWorkInfo?.progress?.getInt(com.filevault.pro.worker.SyncWorker.KEY_PROGRESS_SYNCED, 0) ?: 0
+    val progressTotal = lastWorkInfo?.progress?.getInt(com.filevault.pro.worker.SyncWorker.KEY_PROGRESS_TOTAL, 0) ?: 0
+    val lastSucceeded = workInfoList.any { it.state == WorkInfo.State.SUCCEEDED }
+    val lastFailed = workInfoList.any { it.state == WorkInfo.State.FAILED }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (profile.isActive)
-                MaterialTheme.colorScheme.primaryContainer.copy(0.2f)
-            else MaterialTheme.colorScheme.surfaceVariant.copy(0.5f)
+            containerColor = when {
+                isRunning -> MaterialTheme.colorScheme.secondaryContainer.copy(0.3f)
+                profile.isActive -> MaterialTheme.colorScheme.primaryContainer.copy(0.2f)
+                else -> MaterialTheme.colorScheme.surfaceVariant.copy(0.5f)
+            }
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -258,7 +282,11 @@ private fun SyncProfileCard(
                         buildString {
                             append(profile.type.name.lowercase().replaceFirstChar { it.uppercase() })
                             append(" · ")
-                            append(if (profile.intervalHours == 0) "Manual" else "Every ${profile.intervalHours}h")
+                            append(if (profile.intervalHours == 0) "Manual only" else "Every ${profile.intervalHours}h")
+                            if (profile.fileTypeScope.isNotEmpty()) {
+                                append(" · ")
+                                append(profile.fileTypeScope.joinToString(", ") { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } })
+                            }
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(0.5f)
@@ -268,7 +296,7 @@ private fun SyncProfileCard(
             }
 
             if (profile.lastSyncAt != null) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
                 Text(
                     "Last sync: ${SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(profile.lastSyncAt))}",
                     style = MaterialTheme.typography.labelSmall,
@@ -276,20 +304,85 @@ private fun SyncProfileCard(
                 )
             }
 
+            AnimatedVisibility(
+                visible = isRunning,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column {
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (progressTotal > 0) "Syncing $progressSynced / $progressTotal files…"
+                            else "Sync in progress…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(0.7f)
+                        )
+                    }
+                    if (progressTotal > 0) {
+                        Spacer(Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { progressSynced.toFloat() / progressTotal.toFloat() },
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))
+                        )
+                    } else {
+                        Spacer(Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))
+                        )
+                    }
+                }
+            }
+
+            AnimatedVisibility(visible = lastSucceeded && !isRunning) {
+                Row(modifier = Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CheckCircle, null, modifier = Modifier.size(14.dp), tint = Color(0xFF2E7D32))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Last sync completed successfully", style = MaterialTheme.typography.labelSmall, color = Color(0xFF2E7D32))
+                }
+            }
+
+            AnimatedVisibility(visible = lastFailed && !isRunning) {
+                Row(modifier = Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.ErrorOutline, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Last sync failed — check history", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(0.3f))
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onSyncNow, modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp)) {
-                    Icon(Icons.Default.Sync, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Sync Now")
+                Button(
+                    onClick = onSyncNow,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    enabled = !isRunning,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (profile.type == SyncType.TELEGRAM) Color(0xFF0088CC) else Color(0xFFEA4335)
+                    )
+                ) {
+                    if (isRunning) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Syncing…")
+                    } else {
+                        Icon(Icons.Default.Sync, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Sync Now")
+                    }
                 }
-                IconButton(onClick = onViewHistory) { Icon(Icons.Default.History, null) }
-                IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null) }
+                IconButton(onClick = onViewHistory) {
+                    Icon(Icons.Default.History, "History", tint = MaterialTheme.colorScheme.primary)
+                }
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, "Edit", tint = MaterialTheme.colorScheme.primary)
+                }
                 IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
+                    Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
                 }
             }
         }

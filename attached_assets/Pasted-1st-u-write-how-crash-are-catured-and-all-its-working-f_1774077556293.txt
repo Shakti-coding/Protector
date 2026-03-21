@@ -1,0 +1,65 @@
+1st u write how crash are catured and all its working features means everything about it in detail ,how u add and u make file and write about it clearly tha crash log features which is fully working in our app, in Restore tab please apply file count to everywhere and and please thumbnail or its type of document {apk,json etc}correctly in restore tab like like we have other tab,please make all area above that filter file region,make them collpsible so we will have a large area to see result files,photos,video,and many files are not showing using viewer or detil clearly just they ahould as file tab shows their in doc in detail screen ok meand it must be like other tab if any file is tapped ok , check why sync is not tapp or functional when config are setuped and as they should start with always visible progrss in sync area and please make sure that sync must strt sending set file type from 1st date and all its featuresok and make app lock fully functional and even giving all its screen and setupcreen and everything ok please make that 100% functional ok and in photo tab make such that when i swipe left or right then it move previous or next photo ok Check Readme file it is fully updated and all
+
+Let me read the key files to understand the current implementation before making changes.
+
+Let me read the remaining key files in parallel to understand the full scope.
+
+Let me read the remaining important files.
+
+Let me read a few more files to understand the full picture.
+
+Let me look at MainActivity and the FilesScreen for the remaining context.
+
+Let me read the rest of RecoveryScreen to see the grid/list item composables, and also check FileRepository.
+
+Let me check the getUnsyncedFiles method and read the full README to understand what needs updating.
+
+Now I have a complete picture of the codebase. Let me implement all the required fixes systematically. I'll work through each issue in parallel where possible.
+
+Here's what I'm fixing:
+
+Recovery tab — file count, proper icons, collapsible header, correct file tap navigation
+Sync — fix Sync Now always working, add visible progress, sync from beginning per file type
+App Lock — full setup screen with PIN/biometric flow
+Photos — swipe left/right between photos
+README — update with crash log docs and all features
+Let me check the FileDetailViewModel to understand how files are loaded there.
+
+Now I have all the information I need. Let me implement all the fixes simultaneously.
+
+Starting with the most complex ones first:
+
+Let me fix the AppLockSetupScreen - the private composables need to be either moved or re-defined:
+
+Now let me read AppPreferences to verify the methods I'm calling, and also read the current SettingsScreen and AppNavGraph:
+
+Now let me read SettingsScreen and the current ImageViewerScreen in full to understand what to modify:
+
+Let me read MediaQueue utility and the rest of SettingsScreen to check the App Lock toggle:
+
+Now let me read SyncWorker and SyncProfilesScreen to understand how to fix them:
+
+Let me read the main body of RecoveryScreen (first half) in parallel with starting other edits:
+
+Now I have everything. Let me implement all changes simultaneously:
+
+1. Fix SyncWorker — allow manual sync to bypass isActive check:
+
+2. Update SyncViewModel to pass force flag + add progress observation:
+
+Now let me implement the AppNavGraph and SettingsScreen changes in parallel:
+
+Now I need to update AppNavGraph to accept AppPreferences and wire the AppLockSetup route. Let me also update MainActivity:
+
+Now let me add the AppLockSetup composable in NavHost and update the Settings composable call:
+
+Now let me update MainActivity, SettingsScreen, and ImageViewerScreen all in parallel:
+
+Now let me update SettingsScreen to replace the App Lock toggle with navigation, and update ImageViewerScreen to add swipe-between-photos:
+
+Now let me rewrite ImageViewerScreen with swipe navigation, and update RecoveryScreen with collapsible header in parallel:
+
+You've reached your monthly free quota limit. It will reset on April 9, 2026.
+
+Add app lock functionality and improve image viewing and sync capabilities
+12:20 noon, Mar 21, 2026

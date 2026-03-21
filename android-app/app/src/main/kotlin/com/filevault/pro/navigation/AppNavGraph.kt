@@ -237,7 +237,7 @@ fun AppNavGraph(appPreferences: AppPreferences? = null) {
                             mimeType.startsWith("image/") -> Screen.ImageViewer.createRoute(path)
                             mimeType.startsWith("video/") -> Screen.VideoPlayer.createRoute(path)
                             mimeType.startsWith("audio/") -> Screen.AudioPlayer.createRoute(path)
-                            else -> Screen.FileViewer.createRoute(path)
+                            else -> Screen.FileDetail.createRoute(path)
                         }
                         navController.navigate(route)
                     }

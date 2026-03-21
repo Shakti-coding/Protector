@@ -4,9 +4,11 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -24,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -36,7 +39,6 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.filevault.pro.presentation.screen.photos.EmptyState
-import com.filevault.pro.presentation.screen.photos.GridColumnsRow
 import com.filevault.pro.presentation.screen.photos.MultiSelectActionBar
 import com.filevault.pro.presentation.screen.photos.SearchBar
 import com.filevault.pro.util.FileUtils
@@ -66,6 +68,7 @@ fun RecoveryScreen(
     var isBusy by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showVolumeSheet by remember { mutableStateOf(false) }
+    var isHeaderCollapsed by remember { mutableStateOf(false) }
 
     val displayedFiles = remember(uiState.foundFiles, uiState.filterType, uiState.searchQuery) {
         viewModel.filteredFiles()
@@ -163,6 +166,12 @@ fun RecoveryScreen(
                                 Icon(Icons.Default.Close, "Deselect")
                             }
                         } else {
+                            IconButton(onClick = { isHeaderCollapsed = !isHeaderCollapsed }) {
+                                Icon(
+                                    if (isHeaderCollapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                                    if (isHeaderCollapsed) "Expand filters" else "Collapse filters"
+                                )
+                            }
                             IconButton(onClick = viewModel::toggleView) {
                                 Icon(
                                     if (uiState.isGridView) Icons.Default.ViewList else Icons.Default.GridView,
@@ -180,58 +189,66 @@ fun RecoveryScreen(
                         placeholder = "Search recovered files…"
                     )
 
-                    if (uiState.isGridView) {
-                        GridColumnsRow(
-                            columns = uiState.gridColumns,
-                            onChange = viewModel::setGridColumns,
-                            itemCount = displayedFiles.size
-                        )
+                    AnimatedVisibility(
+                        visible = !isHeaderCollapsed,
+                        enter = expandVertically(),
+                        exit = shrinkVertically()
+                    ) {
+                        Column {
+                            ShizukuStatusBar(
+                                status = uiState.shizukuStatus,
+                                onAction = {
+                                    when (uiState.shizukuStatus) {
+                                        ShizukuStatus.NOT_INSTALLED -> {
+                                            runCatching {
+                                                context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=moe.shizuku.privileged.api"))
+                                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                )
+                                            }.getOrElse {
+                                                context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=moe.shizuku.privileged.api"))
+                                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                )
+                                            }
+                                        }
+                                        ShizukuStatus.NOT_RUNNING -> {
+                                            runCatching {
+                                                context.startActivity(
+                                                    context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+                                                        ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                                )
+                                            }
+                                            viewModel.refreshShizukuStatus()
+                                        }
+                                        ShizukuStatus.NO_PERMISSION -> viewModel.requestShizukuPermission()
+                                        ShizukuStatus.READY -> viewModel.refreshShizukuStatus()
+                                    }
+                                }
+                            )
+
+                            ScanControlBar(
+                                uiState = uiState,
+                                onScanModeChange = viewModel::setScanMode,
+                                onVolumeClick = { showVolumeSheet = true },
+                                onStartScan = viewModel::startScan,
+                                onPauseScan = viewModel::pauseScan,
+                                onStopScan = viewModel::stopScan
+                            )
+                        }
                     }
 
-                    ShizukuStatusBar(
-                        status = uiState.shizukuStatus,
-                        onAction = {
-                            when (uiState.shizukuStatus) {
-                                ShizukuStatus.NOT_INSTALLED -> {
-                                    runCatching {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=moe.shizuku.privileged.api"))
-                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        )
-                                    }.getOrElse {
-                                        context.startActivity(
-                                            Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=moe.shizuku.privileged.api"))
-                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        )
-                                    }
-                                }
-                                ShizukuStatus.NOT_RUNNING -> {
-                                    runCatching {
-                                        context.startActivity(
-                                            context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
-                                                ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        )
-                                    }
-                                    viewModel.refreshShizukuStatus()
-                                }
-                                ShizukuStatus.NO_PERMISSION -> viewModel.requestShizukuPermission()
-                                ShizukuStatus.READY -> viewModel.refreshShizukuStatus()
-                            }
-                        }
-                    )
-
-                    ScanControlBar(
-                        uiState = uiState,
-                        onScanModeChange = viewModel::setScanMode,
-                        onVolumeClick = { showVolumeSheet = true },
-                        onStartScan = viewModel::startScan,
-                        onPauseScan = viewModel::pauseScan,
-                        onStopScan = viewModel::stopScan
+                    RecoveryFileCountRow(
+                        columns = uiState.gridColumns,
+                        onChange = viewModel::setGridColumns,
+                        itemCount = displayedFiles.size,
+                        isGridView = uiState.isGridView
                     )
 
                     TypeFilterChips(
                         selected = uiState.filterType,
-                        onSelect = viewModel::setFilterType
+                        onSelect = viewModel::setFilterType,
+                        counts = computeTypeCounts(uiState.foundFiles)
                     )
                 }
             }
@@ -261,13 +278,13 @@ fun RecoveryScreen(
                 displayedFiles.isEmpty() && uiState.scanState == ScanState.DONE -> {
                     EmptyState(
                         message = "No recoverable files found.\nTry Deep Scan for more results.",
-                        icon = Icons.Default.FindInPage
+                        icon = Icons.Default.SearchOff
                     )
                 }
                 displayedFiles.isEmpty() -> {
                     EmptyState(
                         message = "Start a scan to find recoverable files.\nQuick Scan works without any special permissions.",
-                        icon = Icons.Default.RestorePage
+                        icon = Icons.Default.Restore
                     )
                 }
                 uiState.isGridView -> {
@@ -374,9 +391,53 @@ fun RecoveryScreen(
     }
 }
 
+private fun computeTypeCounts(files: List<RecoveredFile>): Map<RecoveryFileType, Int> {
+    return files.groupBy { it.fileType }.mapValues { it.value.size }
+}
+
+@Composable
+private fun RecoveryFileCountRow(
+    columns: Int,
+    onChange: (Int) -> Unit,
+    itemCount: Int,
+    isGridView: Boolean
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "$itemCount file${if (itemCount != 1) "s" else ""} found",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(0.5f),
+            modifier = Modifier.weight(1f)
+        )
+        if (isGridView) {
+            listOf(2, 3, 4).forEach { count ->
+                IconButton(
+                    onClick = { onChange(count) },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        when (count) {
+                            2 -> Icons.Default.GridView
+                            3 -> Icons.Default.Apps
+                            else -> Icons.Default.GridOn
+                        },
+                        null,
+                        modifier = Modifier.size(18.dp),
+                        tint = if (columns == count) MaterialTheme.colorScheme.primary
+                               else MaterialTheme.colorScheme.onSurface.copy(0.4f)
+                    )
+                }
+            }
+        }
+    }
+}
+
 private data class ShizukuBarState(
     val bgColor: Color,
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val icon: ImageVector,
     val label: String,
     val actionLabel: String,
     val showAction: Boolean
@@ -566,25 +627,29 @@ private fun ScanModeChip(
 @Composable
 private fun TypeFilterChips(
     selected: RecoveryFileType,
-    onSelect: (RecoveryFileType) -> Unit
+    onSelect: (RecoveryFileType) -> Unit,
+    counts: Map<RecoveryFileType, Int>
 ) {
     val types = listOf(
         RecoveryFileType.ALL to "All",
         RecoveryFileType.PHOTO to "Photos",
         RecoveryFileType.VIDEO to "Videos",
         RecoveryFileType.AUDIO to "Audio",
-        RecoveryFileType.DOCUMENT to "Documents",
+        RecoveryFileType.DOCUMENT to "Docs",
         RecoveryFileType.ARCHIVE to "Archives"
     )
+    val totalCount = counts.values.sum()
     LazyRow(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(types) { (type, label) ->
+            val count = if (type == RecoveryFileType.ALL) totalCount else counts[type] ?: 0
+            val chipLabel = if (count > 0) "$label ($count)" else label
             FilterChip(
                 selected = selected == type,
                 onClick = { onSelect(type) },
-                label = { Text(label) },
+                label = { Text(chipLabel, style = MaterialTheme.typography.labelSmall) },
                 leadingIcon = if (selected == type) {
                     { Icon(Icons.Default.Check, null, Modifier.size(14.dp)) }
                 } else null
@@ -683,7 +748,7 @@ private fun formatBytes(bytes: Long): String {
 }
 
 @Composable
-private fun StatChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, sub: String) {
+private fun StatChip(icon: ImageVector, label: String, sub: String) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -743,16 +808,30 @@ private fun RecoveryGridItem(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
+            val (icon, color) = fileTypeIconAndColor(file.fileType, file.name)
             Box(
                 modifier = Modifier.fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(color.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    fileTypeIcon(file.fileType), null,
-                    modifier = Modifier.size(36.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.6f)
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        icon, null,
+                        modifier = Modifier.size(32.dp),
+                        tint = color
+                    )
+                    val ext = file.name.substringAfterLast('.', "").uppercase()
+                    if (ext.isNotEmpty() && ext.length <= 5) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            ext,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = color,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
             }
         }
 
@@ -792,6 +871,9 @@ private fun RecoveryListItem(
     val dateStr = remember(file.lastModified) {
         SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(file.lastModified))
     }
+    val (icon, iconColor) = fileTypeIconAndColor(file.fileType, file.name)
+    val ext = file.name.substringAfterLast('.', "").uppercase()
+
     ListItem(
         modifier = Modifier
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -801,8 +883,8 @@ private fun RecoveryListItem(
             ),
         leadingContent = {
             Box(
-                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp))
+                    .background(iconColor.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
                 if (file.fileType == RecoveryFileType.PHOTO || file.fileType == RecoveryFileType.VIDEO) {
@@ -810,11 +892,19 @@ private fun RecoveryListItem(
                         model = File(file.path),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp))
+                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp))
                     )
+                    if (file.fileType == RecoveryFileType.VIDEO) {
+                        Icon(Icons.Default.PlayCircle, null, tint = Color.White.copy(0.85f), modifier = Modifier.size(22.dp))
+                    }
                 } else {
-                    Icon(fileTypeIcon(file.fileType), null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
+                        if (ext.isNotEmpty() && ext.length <= 5) {
+                            Text(ext, style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                                fontWeight = FontWeight.Bold, color = iconColor, maxLines = 1)
+                        }
+                    }
                 }
                 if (isSelected) {
                     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(0.45f)),
@@ -877,12 +967,29 @@ private fun ProbabilityBadge(probability: Int, modifier: Modifier = Modifier) {
     }
 }
 
-private fun fileTypeIcon(type: RecoveryFileType): androidx.compose.ui.graphics.vector.ImageVector =
-    when (type) {
-        RecoveryFileType.PHOTO -> Icons.Default.Image
-        RecoveryFileType.VIDEO -> Icons.Default.Movie
-        RecoveryFileType.AUDIO -> Icons.Default.MusicNote
-        RecoveryFileType.DOCUMENT -> Icons.Default.Description
-        RecoveryFileType.ARCHIVE -> Icons.Default.Archive
-        RecoveryFileType.ALL -> Icons.Default.InsertDriveFile
+private data class IconAndColor(val icon: ImageVector, val color: Color)
+
+@Composable
+private fun fileTypeIconAndColor(type: RecoveryFileType, fileName: String): IconAndColor {
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+    return when (type) {
+        RecoveryFileType.PHOTO -> IconAndColor(Icons.Default.Image, MaterialTheme.colorScheme.tertiary)
+        RecoveryFileType.VIDEO -> IconAndColor(Icons.Default.Movie, Color(0xFF9C27B0))
+        RecoveryFileType.AUDIO -> IconAndColor(Icons.Default.MusicNote, Color(0xFF2196F3))
+        RecoveryFileType.ARCHIVE -> IconAndColor(Icons.Default.FolderZip, Color(0xFFFF9800))
+        RecoveryFileType.DOCUMENT -> {
+            when (ext) {
+                "apk" -> IconAndColor(Icons.Default.Android, Color(0xFF4CAF50))
+                "pdf" -> IconAndColor(Icons.Default.PictureAsPdf, Color(0xFFE53935))
+                "json", "xml", "yaml", "yml" -> IconAndColor(Icons.Default.Code, Color(0xFF607D8B))
+                "doc", "docx" -> IconAndColor(Icons.Default.Description, Color(0xFF1565C0))
+                "xls", "xlsx" -> IconAndColor(Icons.Default.GridOn, Color(0xFF2E7D32))
+                "ppt", "pptx" -> IconAndColor(Icons.Default.Slideshow, Color(0xFFE65100))
+                "txt", "log" -> IconAndColor(Icons.Default.Article, Color(0xFF546E7A))
+                "html", "htm" -> IconAndColor(Icons.Default.Web, Color(0xFFE91E63))
+                else -> IconAndColor(Icons.Default.Description, MaterialTheme.colorScheme.primary)
+            }
+        }
+        RecoveryFileType.ALL -> IconAndColor(Icons.Default.InsertDriveFile, MaterialTheme.colorScheme.onSurface.copy(0.6f))
     }
+}

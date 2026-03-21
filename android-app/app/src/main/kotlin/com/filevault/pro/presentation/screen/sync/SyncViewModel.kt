@@ -97,7 +97,7 @@ class SyncViewModel @Inject constructor(
     }
 
     fun getSyncWorkInfo(profileId: Long) =
-        WorkManager.getInstance(context).getWorkInfosByTagLiveData("manual_sync_$profileId")
+        WorkManager.getInstance(context).getWorkInfosByTagFlow("manual_sync_$profileId")
 
     fun cancelSyncWorker(profileId: Long) {
         WorkManager.getInstance(context).cancelUniqueWork("sync_profile_$profileId")

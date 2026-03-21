@@ -1026,3 +1026,171 @@ class FileVaultWidget : GlanceAppWidget() {
 *Document generated: March 18, 2026*
 *Specification version: 1.0*
 *Ready for full Android APK development using Kotlin + Jetpack Compose*
+
+---
+
+## 18. Implementation Status (as of March 2026)
+
+### 18.1 Feature Implementation Summary
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Deep File Scan (Quick) | ✅ Implemented | MediaStore trash, LOST.DIR, hidden files |
+| Deep File Scan (Block-level) | ✅ Implemented | Via Shizuku — requires root/ADB setup |
+| Room DB + MVVM | ✅ Implemented | Full schema with FileEntryEntity, SyncProfile, SyncHistory |
+| Photos Tab | ✅ Implemented | Grid/list, sort, search, swipe between photos |
+| Videos Tab | ✅ Implemented | Grid/list, sort, search, video player |
+| Files Tab | ✅ Implemented | List view, type filter chips, multi-select, batch ops |
+| Recovery Tab | ✅ Implemented | Scan modes, type filters, grid/list, file count, collapsible header |
+| Dashboard | ✅ Implemented | Stats, last scan, last sync, storage usage |
+| Sync — Telegram | ✅ Implemented | Bot API, file-by-file with progress |
+| Sync — Email (SMTP) | ✅ Implemented | Batched attachments via android-mail |
+| Sync History | ✅ Implemented | Per-profile history with status |
+| App Lock (PIN + Biometric) | ✅ Implemented | PIN setup, BiometricPrompt, timeout auto-relock |
+| Crash Logging | ✅ Implemented | See §18.3 below |
+| Duplicate Finder | ✅ Implemented | Content-hash grouping, batch delete |
+| Folder Browser | ✅ Implemented | Hierarchical browser with file counts |
+| Notification Center | ✅ Implemented | In-app log for scan/sync events |
+| Settings Screen | ✅ Implemented | Theme, grid columns, hidden files, scan interval |
+| Diagnostic Screen | ✅ Implemented | Storage stats, DB health, scan diagnostics |
+| Onboarding Screen | ✅ Implemented | First-run permission walkthrough |
+| WorkManager Periodic Scan | ✅ Implemented | Configurable interval, survives doze |
+| Sync Worker | ✅ Implemented | Foreground service, progress notifications, manifest dedup |
+
+---
+
+### 18.2 Architecture Details
+
+```
+com.filevault.pro
+├── data
+│   ├── local/          Room DB — FileEntryEntity, SyncProfileEntity, SyncHistoryEntity
+│   ├── preferences/    AppPreferences (DataStore), EncryptedPrefs (Keystore)
+│   ├── remote/         TelegramSyncImpl (Retrofit), EmailSyncImpl (android-mail)
+│   ├── repository/     FileRepositoryImpl, SyncRepositoryImpl
+│   └── sync/           SyncManifestManager (JSON manifest for dedup)
+├── domain
+│   ├── model/          FileEntry, SyncProfile, SyncHistory, FileType, SortOrder …
+│   └── repository/     FileRepository, SyncRepository (interfaces)
+├── presentation
+│   └── screen/         One package per screen — each has Screen.kt + ViewModel.kt
+├── navigation/         AppNavGraph — single NavHost with bottom nav
+├── worker/             SyncWorker (HiltWorker + WorkManager)
+└── util/               CrashLogStore, MediaQueue, FileUtils, Thumbnails
+```
+
+**Key DI entry points:** `FileVaultApp.kt` (Hilt Application), `@AndroidEntryPoint MainActivity`
+
+**Navigation:** `AppNavGraph` — flat NavHost, bottom bar for 6 top-level tabs, standard back-stack for detail screens.
+
+---
+
+### 18.3 Crash Logging System
+
+FileVault Pro includes a built-in, zero-dependency crash logging system for capturing and reviewing uncaught exceptions without requiring external services.
+
+#### How It Works
+
+**Installation (in `FileVaultApp.kt`):**
+```kotlin
+CrashLogStore.install(this)
+```
+This replaces `Thread.defaultUncaughtExceptionHandler`. When any thread throws an uncaught exception:
+1. The exception thread, message, and full stack trace are formatted into a UTF-8 text block.
+2. The block is written to `{filesDir}/crash_logs/crash_<timestamp_ms>.txt`.
+3. The original (system) handler is forwarded to so the app still terminates normally.
+4. A rotating limit of **20 crash files** is enforced — the oldest file is deleted when the cap is exceeded.
+
+#### File Format
+
+Each crash file contains:
+```
+Thread: main
+Timestamp: 2026-03-18T14:22:01.123Z
+java.lang.NullPointerException: Attempt to invoke virtual method ...
+    at com.filevault.pro.presentation.screen.photos.PhotosScreen$...
+    at ...
+```
+
+#### CrashLogScreen UI (`Settings → Crash Logs`)
+
+- Lists all crash files sorted newest-first.
+- Each entry is an expandable card showing:
+  - Date and time of crash
+  - Thread name
+  - Exception class + message (headline)
+  - Full stack trace (expandable)
+- Per-entry actions: **Copy to clipboard**, **Delete**.
+- Global actions: **Delete all logs** (with confirmation dialog).
+- Empty state shown when no crashes have occurred.
+
+#### Privacy & Storage
+
+- Logs are written to the app's private `filesDir` — not accessible to other apps.
+- No network upload or external reporting; all logs remain on-device.
+- User can delete logs at any time from the UI.
+
+---
+
+### 18.4 App Lock & Timeout Behavior
+
+**Enable/configure:** `Settings → App Lock`
+
+1. **PIN setup:** User enters and confirms a 4–8 digit PIN. Hash stored in DataStore (not plain text).
+2. **Biometric:** `BiometricPrompt` shown if hardware available. Falls back to PIN if biometric fails.
+3. **Lock screen gate:** `MainActivity` checks `appLockEnabled` before showing `AppNavGraph`. If locked, `AppLockScreen` covers the entire UI.
+4. **Auto-relock timeout:** When the app moves to background (`ON_PAUSE`), the time is recorded. On next foreground (`ON_RESUME`), if the elapsed time ≥ configured timeout, `isUnlocked` is set to `false` and the lock screen is shown immediately.
+5. **Timeout options:** 1 min, 2 min, 5 min, 15 min, 30 min, Never.
+6. **Disable:** From `AppLockSetupScreen` — requires current PIN confirmation first.
+
+---
+
+### 18.5 Sync Pipeline Details
+
+**Manual sync ("Sync Now"):**
+- Tapping **Sync Now** enqueues a `OneTimeWorkRequest<SyncWorker>` with `KEY_FORCE_SYNC = true`.
+- The worker runs even if the profile's active toggle is off.
+- `WorkInfo` is observed in the UI via `getSyncWorkInfo(profileId)` — progress bar and synced/total counters update in real time.
+- The `SyncProfileCard` shows: running spinner + progress bar while syncing, green checkmark on success, red error label on failure.
+
+**File ordering:** Unsynced files are fetched `ORDER BY last_modified ASC` — oldest files are synced first, ensuring chronological order.
+
+**Deduplication:** `SyncManifestManager` keeps a JSON manifest of all synced paths. Files already present in the manifest are skipped even if `last_synced_at` is NULL (e.g. after DB migration).
+
+**Telegram:** Each file is sent individually with `sendDocument`/`sendPhoto`/`sendVideo`. A 500ms delay between files avoids hitting Bot API rate limits.
+
+**Email:** All files for the session are attached to a single email (or split across multiple emails if cumulative size exceeds the configured limit).
+
+---
+
+### 18.6 Recovery Tab Details
+
+**Scan modes:**
+- **Quick Scan** (no special permissions): Searches MediaStore trash (`IS_TRASHED = 1`), `LOST.DIR`/`lost+found` directories, and hidden files (`.` prefix) in external storage.
+- **Deep Scan** (requires Shizuku): Adds block-device carving via `dd` + file-signature matching for JPEG, PNG, MP4, PDF, ZIP, and more. Falls back to extended filesystem scan if no block devices are accessible.
+
+**Shizuku status banner:** Always shown above the scan controls, collapsed by default after first scan. Shows current Shizuku state with one-tap action button (Install / Open / Grant / Refresh).
+
+**Filter and count row:** File count is always visible (both grid and list view). Type filter chips show counts for each category.
+
+**Collapsible header:** The Shizuku banner + scan controls can be hidden/shown with the chevron button in the top bar to maximize list space.
+
+**File tap behavior:**
+- Images → `ImageViewerScreen` (full-screen with swipe)
+- Videos → `VideoPlayerScreen`
+- Audio → `AudioPlayerScreen`
+- All other types (documents, APK, archives, etc.) → `FileDetailScreen` (shows metadata, open-with, share)
+
+**Type icons:** Each file type gets a distinct icon + color with extension label overlay for documents:
+- APK → Android icon (green)
+- PDF → PictureAsPdf (red)
+- JSON/XML/YAML → Code icon (blue-grey)
+- DOCX → Description (blue)
+- XLSX → GridOn (dark green)
+- PPTX → Slideshow (orange)
+- HTML → Language (pink)
+- Archives → FolderZip (amber)
+
+---
+
+*Last updated: March 21, 2026*

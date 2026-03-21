@@ -143,7 +143,7 @@ interface FileEntryDao {
     @Query("SELECT * FROM file_entries WHERE content_hash = :hash AND is_deleted_from_device = 0")
     suspend fun getFilesByHash(hash: String): List<FileEntryEntity>
 
-    @Query("SELECT * FROM file_entries WHERE last_synced_at IS NULL AND is_sync_ignored = 0 AND is_deleted_from_device = 0")
+    @Query("SELECT * FROM file_entries WHERE last_synced_at IS NULL AND is_sync_ignored = 0 AND is_deleted_from_device = 0 ORDER BY last_modified ASC")
     suspend fun getUnsyncedFiles(): List<FileEntryEntity>
 
     @Query("""
@@ -152,6 +152,7 @@ interface FileEntryDao {
         AND is_sync_ignored = 0
         AND is_deleted_from_device = 0
         AND file_type IN (:types)
+        ORDER BY last_modified ASC
     """)
     suspend fun getUnsyncedFilesByType(types: List<String>): List<FileEntryEntity>
 
