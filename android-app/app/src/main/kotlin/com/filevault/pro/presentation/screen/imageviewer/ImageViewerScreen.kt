@@ -59,6 +59,7 @@ fun ImageViewerScreen(
 
     val pagerState = rememberPagerState(initialPage = startIndex) { allPaths.size }
     var showControls by remember { mutableStateOf(true) }
+    val pageRotations = remember { androidx.compose.runtime.snapshots.SnapshotStateMap<Int, Float>() }
 
     val scope = rememberCoroutineScope()
 
@@ -72,6 +73,7 @@ fun ImageViewerScreen(
             val pageFile = remember(pagePath) { File(pagePath) }
             ZoomableImage(
                 file = pageFile,
+                externalRotation = pageRotations[pageIndex] ?: 0f,
                 onTap = { showControls = !showControls }
             )
         }
