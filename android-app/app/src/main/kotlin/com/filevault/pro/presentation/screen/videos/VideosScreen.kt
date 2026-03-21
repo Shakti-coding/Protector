@@ -7,7 +7,10 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -54,6 +57,7 @@ fun VideosScreen(
     val videos by viewModel.videos.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val sortOrder by viewModel.sortOrder.collectAsState()
+    val isGridView by viewModel.isGridView.collectAsState()
     val gridColumns by viewModel.gridColumns.collectAsState()
     var showSortSheet by remember { mutableStateOf(false) }
     var selectedPaths by remember { mutableStateOf(setOf<String>()) }
@@ -142,6 +146,9 @@ fun VideosScreen(
                             IconButton(onClick = { selectedPaths = emptySet() }) { Icon(Icons.Default.Close, null) }
                         } else {
                             IconButton(onClick = { showSortSheet = true }) { Icon(Icons.Default.Sort, null) }
+                            IconButton(onClick = viewModel::toggleView) {
+                                Icon(if (isGridView) Icons.Default.ViewList else Icons.Default.GridView, "Toggle view")
+                            }
                         }
                     }
                 )
@@ -170,34 +177,59 @@ fun VideosScreen(
         }
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            if (videos.isEmpty()) EmptyState("No videos found.\nRun a scan to catalog your device.", Icons.Default.VideoLibrary)
-            else {
+            if (videos.isEmpty()) {
+                EmptyState("No videos found.\nRun a scan to catalog your device.", Icons.Default.VideoLibrary)
+            } else if (isGridView) {
                 val gridState = rememberLazyGridState()
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(gridColumns),
                     state = gridState,
-                    modifier = Modifier.gridScrollbar(gridState),
+                    modifier = Modifier.fillMaxSize().gridScrollbar(gridState),
                     contentPadding = PaddingValues(4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                items(videos, key = { it.path }) { video ->
-                    VideoGridItem(
-                        file = video,
-                        isSelected = video.path in selectedPaths,
-                        onClick = {
-                            if (selectedPaths.isNotEmpty()) {
-                                selectedPaths = if (video.path in selectedPaths)
-                                    selectedPaths - video.path else selectedPaths + video.path
-                            } else {
-                                MediaQueue.set(video.path, videos.map { it.path })
-                                onFileClick(video.path)
-                            }
-                        },
-                        onLongClick = { selectedPaths = selectedPaths + video.path }
-                    )
+                    items(videos, key = { it.path }) { video ->
+                        VideoGridItem(
+                            file = video,
+                            isSelected = video.path in selectedPaths,
+                            onClick = {
+                                if (selectedPaths.isNotEmpty()) {
+                                    selectedPaths = if (video.path in selectedPaths)
+                                        selectedPaths - video.path else selectedPaths + video.path
+                                } else {
+                                    MediaQueue.set(video.path, videos.map { it.path })
+                                    onFileClick(video.path)
+                                }
+                            },
+                            onLongClick = { selectedPaths = selectedPaths + video.path }
+                        )
+                    }
                 }
-            }
+            } else {
+                val listState = rememberLazyListState()
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    items(videos, key = { it.path }) { video ->
+                        VideoListItem(
+                            file = video,
+                            isSelected = video.path in selectedPaths,
+                            onClick = {
+                                if (selectedPaths.isNotEmpty()) {
+                                    selectedPaths = if (video.path in selectedPaths)
+                                        selectedPaths - video.path else selectedPaths + video.path
+                                } else {
+                                    MediaQueue.set(video.path, videos.map { it.path })
+                                    onFileClick(video.path)
+                                }
+                            },
+                            onLongClick = { selectedPaths = selectedPaths + video.path }
+                        )
+                    }
+                }
             }
         }
     }
@@ -286,4 +318,70 @@ fun VideoGridItem(
             }
         }
     }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun VideoListItem(
+    file: FileEntry,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    ListItem(
+        modifier = Modifier
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .background(
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(0.3f)
+                else Color.Transparent
+            ),
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                AsyncImage(
+                    model = File(file.path),
+                    contentDescription = file.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.2f)))
+                Box(
+                    modifier = Modifier.size(28.dp).align(Alignment.Center)
+                        .clip(CircleShape).background(Color.Black.copy(0.55f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(0.45f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
+                }
+            }
+        },
+        headlineContent = {
+            Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+        },
+        supportingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(FileUtils.formatSize(file.sizeBytes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
+                if (file.durationMs != null) {
+                    Text(" · ", color = MaterialTheme.colorScheme.onSurface.copy(0.3f))
+                    Text(FileUtils.formatDuration(file.durationMs),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
+                }
+            }
+        }
+    )
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(0.3f))
 }

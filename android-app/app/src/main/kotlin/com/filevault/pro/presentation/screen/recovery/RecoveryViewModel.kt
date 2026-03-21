@@ -159,7 +159,6 @@ class RecoveryViewModel @Inject constructor(
                     totalBytes = 0L,
                     blocksScanned = 0,
                     totalBlocks = 0,
-                    foundFiles = emptyList(),
                     errorMessage = null
                 )
             }

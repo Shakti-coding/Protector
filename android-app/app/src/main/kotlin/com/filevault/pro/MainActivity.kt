@@ -51,7 +51,7 @@ class MainActivity : ComponentActivity() {
                 else -> isSystemInDarkTheme()
             }
 
-            var isUnlocked by remember { mutableStateOf(!appLockEnabled) }
+            var isUnlocked by remember { mutableStateOf(false) }
 
             androidx.compose.runtime.LaunchedEffect(appLockEnabled) {
                 if (!appLockEnabled) isUnlocked = true

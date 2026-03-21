@@ -31,6 +31,9 @@ class VideosViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    private val _isGridView = MutableStateFlow(true)
+    val isGridView: StateFlow<Boolean> = _isGridView.asStateFlow()
+
     val gridColumns: StateFlow<Int> = appPreferences.gridColumnsVideos
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 2)
 
@@ -43,6 +46,7 @@ class VideosViewModel @Inject constructor(
 
     fun setSearchQuery(query: String) { _searchQuery.value = query }
     fun setSortOrder(order: SortOrder) { _sortOrder.value = order }
+    fun toggleView() { _isGridView.value = !_isGridView.value }
     fun setGridColumns(count: Int) { viewModelScope.launch { appPreferences.setGridColumnsVideos(count) } }
 
     fun markDeletedFromApp(paths: Set<String>) {

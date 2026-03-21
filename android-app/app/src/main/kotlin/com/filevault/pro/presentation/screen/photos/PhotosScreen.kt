@@ -8,7 +8,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -160,11 +163,21 @@ fun PhotosScreen(
                     onQueryChange = viewModel::setSearchQuery,
                     placeholder = "Search photos…"
                 )
-                GridColumnsRow(
-                    columns = gridColumns,
-                    onChange = viewModel::setGridColumns,
-                    itemCount = photos.size
-                )
+                if (isGridView) {
+                    GridColumnsRow(
+                        columns = gridColumns,
+                        onChange = viewModel::setGridColumns,
+                        itemCount = photos.size
+                    )
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("${photos.size} items", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
+                    }
+                }
             }
         },
         bottomBar = {
@@ -184,7 +197,7 @@ fun PhotosScreen(
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (photos.isEmpty()) {
                 EmptyState(message = "No photos found.\nRun a scan to catalog your device.", icon = Icons.Default.Photo)
-            } else {
+            } else if (isGridView) {
                 val gridState = rememberLazyGridState()
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(gridColumns),
@@ -211,6 +224,31 @@ fun PhotosScreen(
                             onLongClick = {
                                 selectedPaths = selectedPaths + photo.path
                             }
+                        )
+                    }
+                }
+            } else {
+                val listState = rememberLazyListState()
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    items(photos, key = { it.path }) { photo ->
+                        PhotoListItem(
+                            file = photo,
+                            isSelected = photo.path in selectedPaths,
+                            onClick = {
+                                if (isMultiSelect) {
+                                    selectedPaths = if (photo.path in selectedPaths)
+                                        selectedPaths - photo.path
+                                    else selectedPaths + photo.path
+                                } else {
+                                    MediaQueue.set(photo.path, photos.map { it.path })
+                                    onFileClick(photo.path)
+                                }
+                            },
+                            onLongClick = { selectedPaths = selectedPaths + photo.path }
                         )
                     }
                 }
@@ -335,6 +373,66 @@ fun PhotoGridItem(
             }
         }
     }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PhotoListItem(
+    file: FileEntry,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    ListItem(
+        modifier = Modifier
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .background(
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(0.3f)
+                else Color.Transparent
+            ),
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(8.dp))
+            ) {
+                AsyncImage(
+                    model = File(file.path),
+                    contentDescription = file.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier.fillMaxSize()
+                            .background(MaterialTheme.colorScheme.primary.copy(0.45f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.CheckCircle, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        },
+        headlineContent = {
+            Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+        },
+        supportingContent = {
+            Text(
+                "${FileUtils.formatSize(file.sizeBytes)} · ${file.path.substringBeforeLast('/')}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(0.5f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        trailingContent = {
+            if (file.lastSyncedAt != null) {
+                Icon(Icons.Default.Done, null,
+                    tint = Color(0xFF00AA44), modifier = Modifier.size(16.dp))
+            }
+        }
+    )
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(0.3f))
 }
 
 @Composable

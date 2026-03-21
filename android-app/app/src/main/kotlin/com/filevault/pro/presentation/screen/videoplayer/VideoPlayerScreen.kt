@@ -63,6 +63,16 @@ fun VideoPlayerScreen(
     var isFitToScreen by remember { mutableStateOf(false) }
     var brightness by remember { mutableFloatStateOf(0.5f) }
     var volume by remember { mutableFloatStateOf(1f) }
+    var showInfoDialog by remember { mutableStateOf(false) }
+    val fileInfo = remember(currentPlayPath) {
+        val f = File(currentPlayPath)
+        mapOf(
+            "Name" to f.name,
+            "Path" to f.parent.orEmpty(),
+            "Size" to if (f.exists()) FileUtils.formatSize(f.length()) else "Unknown",
+            "Modified" to if (f.exists()) java.text.SimpleDateFormat("MMM dd, yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(f.lastModified())) else "Unknown"
+        )
+    }
 
     val hasPrev = MediaQueue.hasPrev()
     val hasNext = MediaQueue.hasNext()
@@ -206,6 +216,9 @@ fun VideoPlayerScreen(
                                 modifier = Modifier.padding(horizontal = 4.dp)
                             )
                         }
+                    }
+                    IconButton(onClick = { showInfoDialog = true }) {
+                        Icon(Icons.Default.Info, "File Info", tint = Color.White)
                     }
                     IconButton(onClick = { showSpeedMenu = true }) {
                         Icon(Icons.Default.Speed, "Speed", tint = Color.White)
@@ -354,6 +367,37 @@ fun VideoPlayerScreen(
                     )
                 }
             }
+        }
+
+        if (showInfoDialog) {
+            AlertDialog(
+                onDismissRequest = { showInfoDialog = false },
+                title = { Text("File Info") },
+                text = {
+                    Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+                        fileInfo.forEach { (key, value) ->
+                            Column {
+                                Text(key, style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                                Text(value, style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium)
+                            }
+                        }
+                        if (duration > 0L) {
+                            Column {
+                                Text("Duration", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary)
+                                Text(FileUtils.formatDuration(duration),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showInfoDialog = false }) { Text("Close") }
+                }
+            )
         }
 
         if (showSpeedMenu) {

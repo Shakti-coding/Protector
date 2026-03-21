@@ -42,6 +42,7 @@ import com.filevault.pro.presentation.screen.lock.AppLockSetupScreen
 import com.filevault.pro.presentation.screen.notifications.NotificationCenterScreen
 import com.filevault.pro.presentation.screen.recovery.RecoveryScreen
 import com.filevault.pro.data.preferences.AppPreferences
+import com.filevault.pro.util.MediaQueue
 import java.net.URLEncoder
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector? = null) {
@@ -233,11 +234,28 @@ fun AppNavGraph(appPreferences: AppPreferences? = null) {
             composable(Screen.Recovery.route) {
                 RecoveryScreen(
                     onFileClick = { path, mimeType ->
+                        val ext = path.substringAfterLast('.', "").lowercase()
+                        val resolvedMime = if (mimeType.isBlank() || mimeType == "application/octet-stream") {
+                            com.filevault.pro.domain.model.FileType.fromExtension(ext).let { ft ->
+                                when (ft) {
+                                    com.filevault.pro.domain.model.FileType.PHOTO -> "image/jpeg"
+                                    com.filevault.pro.domain.model.FileType.VIDEO -> "video/mp4"
+                                    com.filevault.pro.domain.model.FileType.AUDIO -> "audio/mpeg"
+                                    else -> mimeType
+                                }
+                            }
+                        } else mimeType
                         val route = when {
-                            mimeType.startsWith("image/") -> Screen.ImageViewer.createRoute(path)
-                            mimeType.startsWith("video/") -> Screen.VideoPlayer.createRoute(path)
-                            mimeType.startsWith("audio/") -> Screen.AudioPlayer.createRoute(path)
-                            else -> Screen.FileDetail.createRoute(path)
+                            resolvedMime.startsWith("image/") -> {
+                                MediaQueue.set(path, listOf(path))
+                                Screen.ImageViewer.createRoute(path)
+                            }
+                            resolvedMime.startsWith("video/") -> {
+                                MediaQueue.set(path, listOf(path))
+                                Screen.VideoPlayer.createRoute(path)
+                            }
+                            resolvedMime.startsWith("audio/") -> Screen.AudioPlayer.createRoute(path)
+                            else -> Screen.FileViewer.createRoute(path)
                         }
                         navController.navigate(route)
                     }
