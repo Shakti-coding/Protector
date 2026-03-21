@@ -1,0 +1,200 @@
+We'll redesign the DiskDigger‑like recovery tab to use Shizuku for elevated permissions instead of requiring root. Shizuku allows apps to execute shell commands with ADB (or root) privileges after a one‑time setup via ADB or by installing Shizuku as a root app. This makes deep scanning possible on non‑rooted devices, provided the ADB shell has sufficient access to raw block devices. Below is the complete design, incorporating Shizuku at every level.
+
+---
+
+DiskDigger‑like Recovery Tab (Powered by Shizuku)
+
+Overview
+
+This tab replicates all core functions of DiskDigger but relies on Shizuku to gain the necessary permissions for raw block device access on non‑rooted devices. If Shizuku is not available or doesn't grant sufficient access, the app falls back to limited scanning (external SD card via file system, MediaStore trash, etc.). The user is guided through the setup.
+
+Core Features (Same as DiskDigger)
+
+· Quick Scan – scans file system remnants (LOST.DIR, hidden files, MediaStore trash).
+· Deep Scan – raw block‑level file carving using Shizuku to read storage partitions.
+· File type filtering – images, videos, audio, documents, archives.
+· Preview & selection – thumbnails, metadata, probability.
+· Recovery to user‑chosen folder (via SAF).
+· Advanced options – scan unallocated space (if file system parsing is possible), ignore fragmented files, etc.
+· Root detection fallback: If Shizuku is not installed/authorized, but root is available, we can also use root (optional).
+
+Shizuku Integration Details
+
+1. How Shizuku Works
+
+· Shizuku runs as a background service that provides a Binder interface for other apps to execute shell commands with the privileges of the Shizuku process.
+· Shizuku can be started in two ways:
+  · ADB mode: User connects device to a computer and runs adb shell sh /sdcard/Android/data/moe.shizuku.privileged.api/files/start.sh (or uses the Shizuku app to start via wireless ADB). This grants ADB shell permissions (which are higher than a normal app but still not root).
+  · Root mode: If the device is rooted, Shizuku can run with root privileges.
+· Once Shizuku is running, our app binds to it and can execute commands like ls -l /dev/block/ or dd if=/dev/block/mmcblk0 of=/sdcard/test bs=512 count=1 to read raw blocks. However, reading the entire userdata partition may still be blocked by SELinux; ADB shell may have dd access only to world‑readable block devices. On many devices, /dev/block/ entries are readable only by root and the root group, so ADB shell might fail. But external SD card block devices (e.g., /dev/block/mmcblk1) are often readable by the media_rw group, which ADB shell might not belong to. We need to test.
+
+2. Shizuku Permissions & Capabilities
+
+· With Shizuku, we can run shell commands as the shell user (or root if Shizuku is root). The shell user typically has:
+  · Read access to many system files, but not necessarily raw block devices.
+  · Access to /sdcard and external storage.
+  · Ability to read /proc and some device nodes.
+· For raw block device access, we need to check if the device node is world‑readable (e.g., crw-rw-rw-). This is rare for internal storage. External SD card block devices might be readable by the media_rw group, but the shell user is not in that group. So even with Shizuku, raw access may be impossible without root.
+· Alternative approach: Instead of raw block reading, we can use Shizuku to run debugfs or fsck commands to examine the file system journal and recover deleted inodes. That's more complex.
+
+3. Shizuku Setup Flow in App
+
+· On first launch of the Recovery tab, check if Shizuku is installed and running:
+  · Use Shizuku.getVersion() to check.
+  · If not installed, show a dialog with a link to install Shizuku from the Play Store or F‑Droid.
+  · If installed but not running, prompt user to start Shizuku and grant permission to our app (via Shizuku's permission system).
+· After Shizuku is available, we can request to execute commands. We'll test if we can read a block device by attempting to read the first few bytes of a likely partition (e.g., /dev/block/mmcblk0). If that fails, we fallback to limited scanning.
+
+4. Deep Scan Implementation via Shizuku
+
+· Identify block devices: Use Shizuku to run cat /proc/mounts or ls -l /dev/block/ to list mount points and corresponding block devices. Parse output to find:
+  · Internal userdata partition (mounted at /data – not directly accessible, but the underlying block device might be there).
+  · External SD card (e.g., /dev/block/mmcblk1p1 mounted at /storage/XXXX-XXXX).
+· Attempt raw read: For each candidate block device, use Shizuku to run dd if=<device> of=<tempfile> bs=4096 count=1 and check if it succeeds. If it fails, mark that device as inaccessible.
+· Streaming read: If accessible, we need to read large chunks. dd can output to stdout, which we can capture via Shizuku's transact and stream. However, Shizuku's IPC has size limits; we may need to split into multiple requests or write to a temporary file on shared storage and then read that file from our app. The latter is safer: we use Shizuku to dd to a file in /sdcard/ (world‑writable) and then our app reads that file. But this doubles I/O and may fill storage. Better: use a pipe or read in chunks and transfer via Binder (but Binder has a 1MB limit). We'll implement chunked reading: Shizuku runs a small script that reads a chunk and writes to a pipe, and our app reads from that pipe via a custom ParcelFileDescriptor (Shizuku supports passing file descriptors). This is advanced.
+
+Simpler approach: Use Shizuku to run a binary (like a custom C tool) that performs carving and outputs results to a file, then we read that file. But distributing binaries is messy.
+
+We might instead rely on Shizuku to give us access to dd and then do the carving in our app by reading the dumped raw data. That would require dumping the entire partition, which is huge. Not feasible.
+
+Given these complexities, perhaps the most practical use of Shizuku for recovery is to:
+
+· Use it to access file system internals (like debugfs on ext4) to list deleted files.
+· Or, on devices with external SD card where the block device is readable via shell (some devices allow it), we can perform carving.
+
+We'll design the deep scan to first attempt raw block reading via Shizuku. If successful, we'll implement a chunked reader that uses dd to read blocks sequentially and pipe the output back to the app via a socket or file descriptor. If not, we'll show a message that deep scan requires either root or a device where the block device is accessible via ADB (rare), and we'll offer only limited scan.
+
+5. Limited Scan (Fallback)
+
+· Scan using normal file APIs with MANAGE_EXTERNAL_STORAGE to walk through all accessible directories, looking for:
+  · Files in LOST.DIR (often contain orphaned files).
+  · Hidden files starting with . (like thumbnails).
+  · MediaStore trash (Android 11+).
+· Also, use ContentResolver to query MediaStore for recently deleted items if possible (via MediaStore.Trash query).
+· This will recover files that are still present but hidden, not truly deleted ones.
+
+UI/UX for Recovery Tab with Shizuku
+
+1. Shizuku Status Bar
+
+At the top of the Recovery tab, show a status indicator:
+
+· Shizuku not installed – button "Install Shizuku".
+· Shizuku installed but not running – button "Start Shizuku".
+· Shizuku running but no permission – button "Grant permission".
+· Shizuku ready – green checkmark.
+
+2. Scan Options
+
+· Quick Scan – always available (uses file system APIs).
+· Deep Scan – enabled only if Shizuku is ready and we've verified that at least one block device is readable. Otherwise, disabled with a tooltip explaining the limitation.
+
+3. Storage Selection
+
+· List of storage volumes detected via Context.getExternalFilesDirs() and Shizuku‑based mount point analysis.
+· For each volume, show a "compatibility" badge: e.g., "Deep scan possible" if its block device is readable via Shizuku, else "Quick scan only".
+
+4. Scan Progress
+
+· For deep scan, we'll show a progress bar and estimated time. Since raw scanning is slow, we'll also show a live count of found files and allow pausing.
+
+5. Results & Recovery
+
+· Same as previously designed, with thumbnails and selection.
+
+Technical Implementation Details
+
+1. Shizuku Integration Library
+
+· Use the official Shizuku API: add dependency dev.rikka.shizuku:api:13.+ and dev.rikka.shizuku:provider:13.+.
+· Implement ShizukuProvider in manifest.
+· Request permission moe.shizuku.manager.permission.API_V23 (if targeting Android 6+).
+· Use ShizukuBinderWrapper to get an IBinder and then Shizuku#getVersion().
+
+2. Executing Shell Commands via Shizuku
+
+We'll create a helper class ShizukuShell that:
+
+· Checks if Shizuku is ready.
+· Creates a ParcelFileDescriptor for input/output if needed.
+· Uses Shizuku#createProcess or Shizuku#exec (depending on API). The newer way is to use Shizuku#createProcess to run a command and get an InputStream for stdout.
+
+Example:
+
+```kotlin
+val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+val stdout = process.inputStream.bufferedReader()
+val result = stdout.readText()
+```
+
+But this may not work for commands that require a long time or produce large output. For streaming large data, we'll use Process and read line by line, or redirect output to a file in our app's cache directory (which we can access) and then read it.
+
+For raw block reading, we could do:
+
+```kotlin
+val cmd = "dd if=/dev/block/mmcblk0 bs=1M count=1 2>/dev/null"
+val process = Shizuku.newProcess(arrayOf("sh", "-c", cmd), null, null)
+val data = process.inputStream.readBytes() // careful with size
+```
+
+But reading 1MB at a time is okay; we can loop.
+
+3. Detecting Readable Block Devices
+
+We'll run ls -l /dev/block/ and then for each entry, attempt to read the first few bytes with dd. If successful, we add it to the list of candidate devices.
+
+4. File Carving Engine
+
+· Same as before: we'll have a list of file signatures and for each chunk of data read from the block device, we scan for headers.
+· To avoid reading the entire partition into memory, we'll read chunk by chunk (e.g., 1MB) and process in memory. We'll keep a sliding window to catch headers that span chunk boundaries.
+
+5. Handling Large Partitions
+
+· Use a foreground service to keep the scan alive.
+· Update UI periodically with progress.
+
+6. Fallback to Root
+
+· If Shizuku is not available but root is (checked by which su), we can offer root‑based scanning using similar shell commands.
+
+Code Organization
+
+New package: com.yourapp.recovery
+
+· RecoveryTab.kt – Composable UI.
+· RecoveryViewModel.kt – ViewModel with state.
+· RecoveryService.kt – Foreground service for deep scan.
+· ShizukuManager.kt – Handles Shizuku connection, permission, and command execution.
+· BlockDeviceScanner.kt – Manages raw scanning logic.
+· FileCarver.kt – Signature‑based carving.
+· RecoveryResult.kt – Data class for found files.
+
+Challenges & Mitigations with Shizuku
+
+Challenge Mitigation
+Block devices not readable even with Shizuku Detect and disable deep scan; offer quick scan; educate user that root is needed for full deep scan.
+Performance of shell‑based reads Read in large chunks (e.g., 10MB) to reduce overhead; use dd with bs=10M and pipe to file, then read file.
+SELinux restrictions Try alternative commands like cat if dd fails; on some devices, cat may work.
+Shizuku not installed Provide clear instructions and link; encourage installation.
+Large output from dd Use dd with count=N to limit chunk size; loop.
+User grants permission but command fails Show detailed error message; offer to email logs.
+
+User Instructions
+
+· In the UI, we'll include a help section explaining how to enable deep scan with Shizuku:
+  1. Install Shizuku from Play Store.
+  2. Open Shizuku and follow the setup (wireless debugging or ADB).
+  3. Return to our app and grant permission when prompted.
+  4. Now deep scan will be available.
+
+Final Integration with Main App
+
+· The Recovery tab sits alongside Photos, Videos, Files, and Sync tabs.
+· Recovered files can be optionally added to the main catalog by copying them to a monitored folder (e.g., Recovered inside app's external files dir) and letting the continuous scanner pick them up.
+· Sync tab can be configured to also upload recovered files.
+
+---
+
+Summary
+
+This design transforms the recovery tab into a powerful tool that leverages Shizuku to attempt deep raw scanning on non‑rooted devices. While full raw access may still be limited, it provides a best‑effort approach and falls back gracefully. The user is guided through Shizuku setup, and the app's UI clearly indicates which storage volumes support deep scan. With this, we offer a comprehensive recovery experience that rivals DiskDigger, while staying within the constraints of modern Android and avoiding root requirements.

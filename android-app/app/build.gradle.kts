@@ -157,6 +157,10 @@ dependencies {
     implementation(libs.android.mail)
     implementation(libs.android.activation)
 
+    // Shizuku
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
+
     // ExifInterface
     implementation(libs.exifinterface)
 

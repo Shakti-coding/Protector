@@ -39,6 +39,7 @@ import com.filevault.pro.presentation.screen.videoplayer.VideoPlayerScreen
 import com.filevault.pro.presentation.screen.crashlog.CrashLogScreen
 import com.filevault.pro.presentation.screen.diagnostic.DiagnosticScreen
 import com.filevault.pro.presentation.screen.notifications.NotificationCenterScreen
+import com.filevault.pro.presentation.screen.recovery.RecoveryScreen
 import java.net.URLEncoder
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector? = null) {
@@ -76,9 +77,10 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object Notifications : Screen("notifications", "Notifications")
     object CrashLog : Screen("crash_log", "Crash Logs")
     object Diagnostic : Screen("diagnostic", "Storage Diagnostic")
+    object Recovery : Screen("recovery", "Recovery", Icons.Default.Restore)
 }
 
-val bottomNavItems = listOf(Screen.Dashboard, Screen.Photos, Screen.Videos, Screen.Files, Screen.Settings)
+val bottomNavItems = listOf(Screen.Dashboard, Screen.Photos, Screen.Videos, Screen.Files, Screen.Recovery, Screen.Settings)
 
 fun openFileRoute(path: String, fileType: FileType): String {
     return when (fileType) {
@@ -224,6 +226,19 @@ fun AppNavGraph() {
                 val encodedPath = backStackEntry.arguments?.getString("path") ?: ""
                 val path = java.net.URLDecoder.decode(encodedPath, "UTF-8")
                 UniversalFileViewerScreen(path = path, onBack = { navController.popBackStack() })
+            }
+            composable(Screen.Recovery.route) {
+                RecoveryScreen(
+                    onFileClick = { path, mimeType ->
+                        val route = when {
+                            mimeType.startsWith("image/") -> Screen.ImageViewer.createRoute(path)
+                            mimeType.startsWith("video/") -> Screen.VideoPlayer.createRoute(path)
+                            mimeType.startsWith("audio/") -> Screen.AudioPlayer.createRoute(path)
+                            else -> Screen.FileViewer.createRoute(path)
+                        }
+                        navController.navigate(route)
+                    }
+                )
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(
