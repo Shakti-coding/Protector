@@ -302,10 +302,22 @@ class RecoveryViewModel @Inject constructor(
         _uiState.update { it.copy(progress = prog, foundFiles = found.toList()) }
     }
 
+    private fun shizukuExec(vararg args: String): Process? = runCatching {
+        val cls = Class.forName("rikka.shizuku.Shizuku")
+        val method = cls.getDeclaredMethod(
+            "newProcess",
+            Array<String>::class.java,
+            Array<String>::class.java,
+            String::class.java
+        )
+        method.isAccessible = true
+        method.invoke(null, args, null, null) as Process
+    }.onFailure { Log.w(TAG, "shizukuExec(${args.toList()}) failed: ${it.message}") }.getOrNull()
+
     private fun detectBlockDevicesViaShizuku(): List<Pair<String, Long>> {
         val devices = mutableListOf<Pair<String, Long>>()
+        val proc = shizukuExec("sh", "-c", "ls -l /dev/block/") ?: return devices
         runCatching {
-            val proc = Shizuku.newProcess(arrayOf("sh", "-c", "ls -l /dev/block/"), null, null)
             val out = proc.inputStream.bufferedReader().readText()
             proc.waitFor()
             out.lines().forEach { line ->
@@ -322,11 +334,9 @@ class RecoveryViewModel @Inject constructor(
     }
 
     private fun getBlockDeviceSizeViaShizuku(devPath: String): Long {
+        val proc = shizukuExec("sh", "-c", "blockdev --getsize64 $devPath 2>/dev/null || echo 0")
+            ?: return 0L
         return runCatching {
-            val proc = Shizuku.newProcess(
-                arrayOf("sh", "-c", "blockdev --getsize64 $devPath 2>/dev/null || echo 0"),
-                null, null
-            )
             val out = proc.inputStream.bufferedReader().readText().trim()
             proc.waitFor()
             out.toLongOrNull() ?: 0L
@@ -341,20 +351,18 @@ class RecoveryViewModel @Inject constructor(
     ): List<RecoveredFile> = withContext(Dispatchers.IO) {
         val result = mutableListOf<RecoveredFile>()
         val totalChunks = ((devSize / CHUNK_SIZE) + 1).toInt().coerceAtMost(MAX_CHUNKS)
-        var blockIdx = 0
 
         runCatching {
             repeat(totalChunks) { chunkIdx ->
                 if (!isActive) return@repeat
                 val skip = chunkIdx.toLong()
-                val cmd = "dd if=$devPath bs=$CHUNK_SIZE count=1 skip=$skip 2>/dev/null | od -A x -t x1z -v"
-                val proc = Shizuku.newProcess(arrayOf("sh", "-c", cmd), null, null)
+                val cmd = "dd if=$devPath bs=$CHUNK_SIZE count=1 skip=$skip 2>/dev/null"
+                val proc = shizukuExec("sh", "-c", cmd) ?: return@repeat
                 val data = proc.inputStream.readBytes()
                 proc.waitFor()
 
                 val carved = carveSignatures(data, devPath, chunkIdx, catalogedPaths)
                 result.addAll(carved)
-                blockIdx++
                 onProgress(CHUNK_SIZE, 1)
                 delay(10)
             }
@@ -406,13 +414,10 @@ class RecoveryViewModel @Inject constructor(
         onProgress: suspend (path: String, progress: Float) -> Unit
     ): List<RecoveredFile> = withContext(Dispatchers.IO) {
         val result = mutableListOf<RecoveredFile>()
+        val proc = shizukuExec("sh", "-c", "find /sdcard /storage -type f 2>/dev/null")
         runCatching {
-            val proc = Shizuku.newProcess(
-                arrayOf("sh", "-c", "find /sdcard /storage -type f 2>/dev/null"),
-                null, null
-            )
-            val lines = proc.inputStream.bufferedReader().readLines()
-            proc.waitFor()
+            val lines = proc?.inputStream?.bufferedReader()?.readLines() ?: emptyList()
+            proc?.waitFor()
             lines.forEachIndexed { i, path ->
                 if (!isActive) return@forEachIndexed
                 if (path !in catalogedPaths) {
