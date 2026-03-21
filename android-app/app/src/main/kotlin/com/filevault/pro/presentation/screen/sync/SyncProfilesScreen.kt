@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.work.WorkInfo
 import com.filevault.pro.domain.model.SyncHistory
+import com.filevault.pro.worker.SyncWorker
 import com.filevault.pro.domain.model.SyncProfile
 import com.filevault.pro.domain.model.SyncStatus
 import com.filevault.pro.domain.model.SyncType
